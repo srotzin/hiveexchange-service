@@ -18,6 +18,20 @@ export const store = {
   settlements: new Map(),
 };
 
+// ─── Market Snapshots (in-memory, last 30 per market) ────────────────────────
+export const marketSnapshots = new Map(); // market_id -> [{ts, yes_pool, no_pool, total_volume, position_count}]
+
+export function snapshotMarket(marketId, data) {
+  if (!marketSnapshots.has(marketId)) marketSnapshots.set(marketId, []);
+  const arr = marketSnapshots.get(marketId);
+  arr.push({ ts: new Date().toISOString(), ...data });
+  if (arr.length > 30) arr.shift(); // keep last 30 snapshots
+}
+
+export function getSnapshots(marketId) {
+  return marketSnapshots.get(marketId) || [];
+}
+
 // ─── DB Init ─────────────────────────────────────────────────────────────────
 export async function initDb() {
   if (!process.env.DATABASE_URL) {
@@ -121,6 +135,7 @@ async function runMigrations() {
       total_volume_usdc NUMERIC(24,8) NOT NULL DEFAULT 0,
       creator_did TEXT,
       settlement_rail VARCHAR(20) NOT NULL DEFAULT 'usdc',
+      meta_market_id TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       resolved_at TIMESTAMPTZ
     );

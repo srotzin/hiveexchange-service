@@ -3,8 +3,9 @@ import { Router } from 'express';
 import {
   createPredictMarket, getPredictMarket, listPredictMarkets,
   placeBet, resolveMarket, getPositionsByMarket, getPositionsByDid,
-  calcOdds, VALID_CATEGORIES,
+  calcOdds, VALID_CATEGORIES, getSnapshots,
 } from '../prediction.js';
+import { isInMemory, store } from '../db.js';
 import { requireDid, requireInternalKey, optionalDid } from '../middleware/did-auth.js';
 import { rateLimit } from '../middleware/rate-limit.js';
 
@@ -209,6 +210,71 @@ router.get('/positions', optionalDid, rateLimit(), async (req, res) => {
 
     const positions = await getPositionsByDid(did);
     ok(res, { positions, count: positions.length, did });
+  } catch (e) {
+    err(res, 'INTERNAL_ERROR', e.message, 500);
+  }
+});
+
+// ─── GET /v1/exchange/predict/markets/:market_id/meta — list meta-markets referencing this market
+router.get('/markets/:market_id/meta', rateLimit(), async (req, res) => {
+  try {
+    const { market_id } = req.params;
+
+    let metaMarkets;
+    if (isInMemory()) {
+      metaMarkets = Array.from(store.predictMarkets.values()).filter(
+        m => m.meta_market_id === market_id
+      );
+    } else {
+      const { query } = await import('../db.js');
+      const result = await query(
+        'SELECT * FROM predict_markets WHERE meta_market_id = $1 ORDER BY created_at DESC',
+        [market_id]
+      );
+      metaMarkets = result.rows;
+    }
+
+    const enriched = metaMarkets.map(m => ({
+      ...m,
+      current_odds: calcOdds(m.yes_pool_usdc, m.no_pool_usdc),
+    }));
+
+    ok(res, {
+      base_market_id: market_id,
+      meta_markets: enriched,
+      count: enriched.length,
+      description: 'Markets where agents bet on the betting behavior of the base market',
+    });
+  } catch (e) {
+    err(res, 'INTERNAL_ERROR', e.message, 500);
+  }
+});
+
+// ─── GET /v1/exchange/predict/markets/:market_id/snapshots — historical sparkline data
+router.get('/markets/:market_id/snapshots', rateLimit(), async (req, res) => {
+  try {
+    const { market_id } = req.params;
+
+    const market = await getPredictMarket(market_id);
+    if (!market) return err(res, 'MARKET_NOT_FOUND', `Market ${market_id} not found`, 404);
+
+    const snapshots = getSnapshots(market_id);
+    const currentOdds = calcOdds(market.yes_pool_usdc, market.no_pool_usdc);
+
+    ok(res, {
+      market_id,
+      question: market.question,
+      snapshots,
+      snapshot_count: snapshots.length,
+      current: {
+        yes_pool: market.yes_pool_usdc,
+        no_pool: market.no_pool_usdc,
+        total_volume: market.total_volume_usdc,
+        odds: currentOdds,
+        ts: new Date().toISOString(),
+      },
+      note: 'Snapshots are created on each bet placement. Up to 30 stored in memory.',
+    });
   } catch (e) {
     err(res, 'INTERNAL_ERROR', e.message, 500);
   }

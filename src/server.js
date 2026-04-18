@@ -187,7 +187,7 @@ app.get('/.well-known/hive-pulse.json', (req, res) => {
       source: `${HIVEGATE_URL}/v1/gate/trust/:did`,
     },
     prediction_categories: VALID_CATEGORIES,
-    seeded_prediction_markets: 125,
+    seeded_prediction_markets: 180,
     legal_notice: LEGAL_NOTICE,
     timestamp: new Date().toISOString(),
   });
@@ -423,6 +423,7 @@ async function seedPredictMarkets() {
           total_volume_usdc: 0,
           creator_did: m.creator_did,
           settlement_rail: m.settlement_rail,
+          meta_market_id: m.meta_market_id || null,
           created_at: new Date().toISOString(),
           resolved_at: null,
         });
@@ -432,14 +433,15 @@ async function seedPredictMarkets() {
           `INSERT INTO predict_markets
            (id, question, resolution_criteria, category, resolution_date,
             status, outcome, yes_pool_usdc, no_pool_usdc, total_volume_usdc,
-            creator_did, settlement_rail, created_at, resolved_at)
-           VALUES ($1,$2,$3,$4,$5,'open',NULL,$6,$7,0,$8,$9,NOW(),NULL)
+            creator_did, settlement_rail, meta_market_id, created_at, resolved_at)
+           VALUES ($1,$2,$3,$4,$5,'open',NULL,$6,$7,0,$8,$9,$10,NOW(),NULL)
            ON CONFLICT (id) DO NOTHING`,
           [
             m.id, m.question, m.resolution_criteria || m.question,
             m.category, m.resolution_date,
             m.initial_yes, m.initial_no,
             m.creator_did, m.settlement_rail,
+            m.meta_market_id || null,
           ]
         );
         if (result.rowCount > 0) seeded++;
@@ -458,7 +460,8 @@ async function start() {
   console.log('╔═══════════════════════════════════════════════════════╗');
   console.log('║           HiveExchange — Platform #20                 ║');
   console.log('║   Agent-to-Agent Trading, Prediction & Sports Betting ║');
-  console.log('║        22 Spot Markets · 125 Prediction Markets       ║');
+  console.log('║   22 Spot Markets · 180 Prediction Markets · 19 Cats  ║');
+  console.log('║   Meta-Markets · Space · Sports · Oracle · Leaderboard║');
   console.log('╚═══════════════════════════════════════════════════════╝');
 
   await initDb();

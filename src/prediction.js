@@ -2,7 +2,10 @@
 import { v4 as uuidv4 } from 'uuid';
 import {
   isInMemory, store, query, memInsert, memGet, memUpdate, memList,
+  snapshotMarket, getSnapshots,
 } from './db.js';
+
+export { getSnapshots };
 
 const HIVE_FEE_PCT = 0.02;  // 2% Hive fee on resolution
 const MIN_POOL_EACH = 10;   // 10 USDC minimum per side
@@ -25,6 +28,8 @@ export const VALID_CATEGORIES = [
   'tech',
   'real_estate',
   'sports',
+  'meta',
+  'space',
 ];
 
 // ─── Odds Calculation (LMSR-style simplified) ─────────────────────────────────
@@ -66,6 +71,7 @@ export function calcPotentialPayout(shares, total_pool) {
 export async function createPredictMarket({
   question, resolution_criteria, resolution_date, category,
   settlement_rail, creator_did, initial_yes = MIN_POOL_EACH, initial_no = MIN_POOL_EACH,
+  meta_market_id = null,
 }) {
   const market = {
     id: uuidv4(),
@@ -80,6 +86,7 @@ export async function createPredictMarket({
     total_volume_usdc: 0,
     creator_did: creator_did || null,
     settlement_rail: settlement_rail || 'usdc',
+    meta_market_id: meta_market_id || null,
     created_at: new Date().toISOString(),
     resolved_at: null,
   };
@@ -93,13 +100,14 @@ export async function createPredictMarket({
     `INSERT INTO predict_markets
      (id, question, resolution_criteria, category, resolution_date,
       status, outcome, yes_pool_usdc, no_pool_usdc, total_volume_usdc,
-      creator_did, settlement_rail, created_at, resolved_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+      creator_did, settlement_rail, meta_market_id, created_at, resolved_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
     [
       market.id, market.question, market.resolution_criteria, market.category,
       market.resolution_date, market.status, market.outcome,
       market.yes_pool_usdc, market.no_pool_usdc, market.total_volume_usdc,
-      market.creator_did, market.settlement_rail, market.created_at, market.resolved_at,
+      market.creator_did, market.settlement_rail, market.meta_market_id,
+      market.created_at, market.resolved_at,
     ]
   );
   return market;
@@ -177,6 +185,14 @@ export async function placeBet({ market_id, did, side, amount_usdc, settlement_r
       no_pool_usdc: new_no,
       total_volume_usdc: new_volume,
     });
+    // Snapshot for sparkline / meta-market resolution
+    const posCount = Array.from(store.positions.values()).filter(p => p.market_id === market_id).length;
+    snapshotMarket(market_id, {
+      yes_pool: new_yes,
+      no_pool: new_no,
+      total_volume: new_volume,
+      position_count: posCount,
+    });
   } else {
     await query(
       `INSERT INTO positions
@@ -194,6 +210,13 @@ export async function placeBet({ market_id, did, side, amount_usdc, settlement_r
        WHERE id=$4`,
       [new_yes, new_no, new_volume, market_id]
     );
+    // Snapshot for PG mode too
+    snapshotMarket(market_id, {
+      yes_pool: new_yes,
+      no_pool: new_no,
+      total_volume: new_volume,
+      position_count: null, // would need extra query
+    });
   }
 
   const newOdds = calcOdds(new_yes, new_no);
