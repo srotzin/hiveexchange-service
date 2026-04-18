@@ -7,6 +7,26 @@ import {
 const HIVE_FEE_PCT = 0.02;  // 2% Hive fee on resolution
 const MIN_POOL_EACH = 10;   // 10 USDC minimum per side
 
+export const VALID_CATEGORIES = [
+  'construction',
+  'agent',
+  'general',
+  'weather',
+  'seismic',
+  'natural_disaster',
+  'housing',
+  'legal',
+  'macro',
+  'energy',
+  'crypto',
+  'labor',
+  'climate',
+  'geopolitical',
+  'tech',
+  'real_estate',
+  'sports',
+];
+
 // ─── Odds Calculation (LMSR-style simplified) ─────────────────────────────────
 export function calcOdds(yes_pool, no_pool) {
   const total = parseFloat(yes_pool) + parseFloat(no_pool);
@@ -95,18 +115,20 @@ export async function getPredictMarket(market_id) {
 // ─── List Predict Markets ──────────────────────────────────────────────────────
 export async function listPredictMarkets({ category, status } = {}) {
   if (isInMemory()) {
-    return Array.from(store.predictMarkets.values()).filter((m) => {
-      if (category && m.category !== category) return false;
-      if (status && m.status !== status) return false;
-      return true;
-    });
+    return Array.from(store.predictMarkets.values())
+      .filter((m) => {
+        if (category && m.category !== category) return false;
+        if (status && m.status !== status) return false;
+        return true;
+      })
+      .sort((a, b) => parseFloat(b.total_volume_usdc) - parseFloat(a.total_volume_usdc));
   }
 
   let sql = 'SELECT * FROM predict_markets WHERE 1=1';
   const params = [];
   if (category) { sql += ` AND category = $${params.length + 1}`; params.push(category); }
   if (status) { sql += ` AND status = $${params.length + 1}`; params.push(status); }
-  sql += ' ORDER BY created_at DESC';
+  sql += ' ORDER BY total_volume_usdc DESC, created_at DESC';
 
   const res = await query(sql, params);
   return res.rows;

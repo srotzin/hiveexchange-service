@@ -3,7 +3,7 @@ import { Router } from 'express';
 import {
   createPredictMarket, getPredictMarket, listPredictMarkets,
   placeBet, resolveMarket, getPositionsByMarket, getPositionsByDid,
-  calcOdds,
+  calcOdds, VALID_CATEGORIES,
 } from '../prediction.js';
 import { requireDid, requireInternalKey, optionalDid } from '../middleware/did-auth.js';
 import { rateLimit } from '../middleware/rate-limit.js';
@@ -13,8 +13,6 @@ const router = Router();
 const ok = (res, data, status = 200) => res.status(status).json({ status: 'ok', data });
 const err = (res, code, detail, status = 400) =>
   res.status(status).json({ status: 'error', error: code, detail });
-
-const VALID_CATEGORIES = ['construction', 'agent', 'general'];
 
 // ─── POST /v1/exchange/predict/markets — Create prediction market ──────────────
 router.post('/markets', requireDid, rateLimit(), async (req, res) => {
@@ -80,7 +78,13 @@ router.get('/markets', rateLimit(), async (req, res) => {
       current_odds: calcOdds(m.yes_pool_usdc, m.no_pool_usdc),
     }));
 
-    ok(res, { markets: enriched, count: enriched.length });
+    ok(res, {
+      markets: enriched,
+      count: enriched.length,
+      sort: 'volume_desc',
+      filters: { category: category || null, status: status || null },
+      valid_categories: VALID_CATEGORIES,
+    });
   } catch (e) {
     err(res, 'INTERNAL_ERROR', e.message, 500);
   }
