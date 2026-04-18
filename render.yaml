@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: hiveexchange
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node src/server.js
+    envVars:
+      - key: PORT
+        value: "3010"
+      - key: HIVEGATE_URL
+        value: "https://hivegate.onrender.com"
+      - key: HIVEBANK_URL
+        value: "https://hivebank.onrender.com"
+      - key: HIVE_INTERNAL_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+    healthCheckPath: /health
