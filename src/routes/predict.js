@@ -5,9 +5,10 @@ import {
   placeBet, resolveMarket, getPositionsByMarket, getPositionsByDid,
   calcOdds, VALID_CATEGORIES, getSnapshots,
 } from '../prediction.js';
-import { isInMemory, store } from '../db.js';
+import { isInMemory, store, query } from '../db.js';
 import { requireDid, requireInternalKey, optionalDid } from '../middleware/did-auth.js';
 import { rateLimit } from '../middleware/rate-limit.js';
+import { maybeFireFirstTradeReward } from '../rewards.js';
 
 const router = Router();
 
@@ -112,7 +113,7 @@ router.get('/markets/:market_id', rateLimit(), async (req, res) => {
 // ─── POST /v1/exchange/predict/markets/:market_id/bet — Place bet ─────────────
 router.post('/markets/:market_id/bet', requireDid, rateLimit(), async (req, res) => {
   try {
-    const { side, amount_usdc, settlement_rail } = req.body;
+    const { side, amount_usdc, settlement_rail, wallet_address } = req.body;
     const did = req.hive_did;
 
     if (!side || !amount_usdc) {
@@ -127,6 +128,22 @@ router.post('/markets/:market_id/bet', requireDid, rateLimit(), async (req, res)
       return err(res, 'INVALID_AMOUNT', 'amount_usdc must be positive');
     }
 
+    // Count positions for this DID before placing the bet (for first-trade detection)
+    let tradeCountBefore = 0;
+    try {
+      if (isInMemory()) {
+        tradeCountBefore = Array.from(store.positions.values())
+          .filter(p => p.did === did)
+          .length;
+      } else {
+        const tcRes = await query(
+          'SELECT COUNT(*) as cnt FROM positions WHERE did = $1',
+          [did]
+        );
+        tradeCountBefore = parseInt(tcRes.rows[0]?.cnt || 0, 10);
+      }
+    } catch (_) { /* non-fatal */ }
+
     const result = await placeBet({
       market_id: req.params.market_id,
       did,
@@ -136,6 +153,13 @@ router.post('/markets/:market_id/bet', requireDid, rateLimit(), async (req, res)
     });
 
     ok(res, result, 201);
+
+    // Fire $1 reward on first trade (fire-and-forget, does not block response)
+    maybeFireFirstTradeReward({
+      did,
+      wallet_address: wallet_address || null,
+      tradeCountBefore,
+    }).catch(e => console.error('[rewards] fire error:', e.message));
   } catch (e) {
     if (e.message.includes('not found')) return err(res, 'MARKET_NOT_FOUND', e.message, 404);
     if (e.message.includes('not open')) return err(res, 'MARKET_CLOSED', e.message, 409);

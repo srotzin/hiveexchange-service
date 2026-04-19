@@ -6,6 +6,7 @@ import { matchOrder } from '../matching-engine.js';
 import { checkTrustAllowed } from '../trust.js';
 import { requireDid, optionalDid } from '../middleware/did-auth.js';
 import { orderRateLimit, rateLimit } from '../middleware/rate-limit.js';
+import { maybeFireFirstTradeReward } from '../rewards.js';
 
 const router = Router();
 
@@ -26,6 +27,23 @@ router.post('/', requireDid, orderRateLimit(), async (req, res) => {
     } = req.body;
 
     const did = req.hive_did;
+    const walletAddress = req.body.wallet_address || null;
+
+    // Count trades for this DID before placing the order (for first-trade detection)
+    let tradeCountBefore = 0;
+    try {
+      if (isInMemory()) {
+        tradeCountBefore = Array.from(store.trades.values())
+          .filter(t => t.buyer_did === did || t.seller_did === did || t.did === did)
+          .length;
+      } else {
+        const tcRes = await query(
+          'SELECT COUNT(*) as cnt FROM trades WHERE buyer_did = $1 OR seller_did = $1 OR did = $1',
+          [did]
+        );
+        tradeCountBefore = parseInt(tcRes.rows[0]?.cnt || 0, 10);
+      }
+    } catch (_) { /* non-fatal */ }
 
     // Validate inputs
     if (!market_id || !side || !quantity) {
@@ -117,6 +135,13 @@ router.post('/', requireDid, orderRateLimit(), async (req, res) => {
       trades_executed: trades.length,
       trades,
     }, 201);
+
+    // Fire $1 reward on first trade (fire-and-forget, does not block response)
+    maybeFireFirstTradeReward({
+      did,
+      wallet_address: walletAddress,
+      tradeCountBefore,
+    }).catch(e => console.error('[rewards] fire error:', e.message));
   } catch (e) {
     err(res, 'INTERNAL_ERROR', e.message, 500);
   }
