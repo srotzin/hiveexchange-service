@@ -7,6 +7,8 @@ import { fetchAllPrices, fetchPrice } from './oracle.js';
 import { SEED_PREDICT_MARKETS } from './seeds/predict.js';
 import { SEED_MARKETS } from './seeds/markets.js';
 import marketsRouter from './routes/markets.js';
+import perpsRouter from './routes/perps.js';
+import derivativesRouter from './routes/derivatives.js';
 import ordersRouter from './routes/orders.js';
 import poolsRouter from './routes/pools.js';
 import predictRouter from './routes/predict.js';
@@ -273,6 +275,8 @@ app.use('/v1/exchange/pools',       poolsRouter);
 app.use('/v1/exchange/predict',     predictRouter);
 app.use('/v1/exchange/settle',      settleRouter);
 app.use('/v1/exchange/leaderboard', leaderboardRouter);
+app.use('/v1/exchange/perps',        perpsRouter);
+app.use('/v1/exchange/derivatives',  derivativesRouter);
 app.use('/v1/exchange/portfolio',   portfolioRouter);
 
 // ─── 404 Handler ──────────────────────────────────────────────────────────────
@@ -312,6 +316,16 @@ app.use((req, res) => {
       'GET  /v1/exchange/prices/:symbol',
       'GET  /v1/exchange/leaderboard',
       'GET  /v1/exchange/portfolio/:did',
+      'GET  /v1/exchange/perps/markets',
+      'POST /v1/exchange/perps/positions',
+      'GET  /v1/exchange/perps/positions?did=',
+      'POST /v1/exchange/perps/positions/:id/close',
+      'GET  /v1/exchange/perps/funding',
+      'GET  /v1/exchange/derivatives/markets',
+      'POST /v1/exchange/derivatives/positions',
+      'GET  /v1/exchange/derivatives/positions?did=',
+      'POST /v1/exchange/derivatives/positions/:id/exercise',
+      'GET  /v1/exchange/derivatives/chain/:underlying',
     ],
   });
 });
