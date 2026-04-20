@@ -6,6 +6,7 @@ import { createPredictMarket, listPredictMarkets, VALID_CATEGORIES } from './pre
 import { fetchAllPrices, fetchPrice } from './oracle.js';
 import { SEED_PREDICT_MARKETS } from './seeds/predict.js';
 import { SEED_MARKETS } from './seeds/markets.js';
+import { seedPythMarkets } from './seeds/pyth-markets.js';
 import marketsRouter from './routes/markets.js';
 import perpsRouter from './routes/perps.js';
 import derivativesRouter from './routes/derivatives.js';
@@ -15,6 +16,7 @@ import predictRouter from './routes/predict.js';
 import settleRouter from './routes/settle.js';
 import leaderboardRouter from './routes/leaderboard.js';
 import portfolioRouter from './routes/portfolio.js';
+import trustRatingsRouter from './routes/trust-ratings.js';
 import { rateLimit } from './middleware/rate-limit.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -117,11 +119,15 @@ app.get('/health', async (req, res) => {
     rails: ['usdc', 'usdcx', 'usad', 'aleo'],
     features: [
       'spot_trading',
-      'synthetic_equities',
+      'synthetic_equities_1748_pyth_feeds',
+      'fx_markets_290_pairs',
+      'metals_commodities_11_feeds',
       'amm_pools',
       'prediction_markets',
       'sports_betting',
-      'price_oracle',
+      'pyth_live_oracle',
+      'agent_credit_ratings',
+      'swift_replacement',
       'leaderboard',
       'agent_portfolio',
       '4_settlement_rails',
@@ -153,6 +159,12 @@ app.get('/.well-known/hive-pulse.json', (req, res) => {
       prices: '/v1/exchange/prices',
       leaderboard: '/v1/exchange/leaderboard',
       portfolio: '/v1/exchange/portfolio/:did',
+      perps: '/v1/exchange/perps/markets',
+      derivatives: '/v1/exchange/derivatives/markets',
+      agent_rating: '/v1/exchange/ratings/did/:did',
+      market_rating: '/v1/exchange/ratings/market/:symbol',
+      swift_alt: '/v1/exchange/ratings/swift-alt/:wallet',
+      rating_methodology: '/v1/exchange/ratings/methodology',
     },
     settlement_rails: {
       usdc:  { network: 'Base L2',  token: 'USDC',  description: 'Circle USDC on Base L2' },
@@ -162,7 +174,9 @@ app.get('/.well-known/hive-pulse.json', (req, res) => {
     },
     spot_markets: {
       crypto: ['BTC/USDC','ETH/USDC','SOL/USDC','ALEO/USDC','USAD/USDC','BNB/USDC','AVAX/USDC','MATIC/USDC','ARB/USDC','OP/USDC'],
-      synthetic_equity: ['AAPL/USDC','MSFT/USDC','NVDA/USDC','GOOGL/USDC','AMZN/USDC','META/USDC','TSLA/USDC','SPY/USDC','QQQ/USDC','GLD/USDC','OIL/USDC'],
+      synthetic_equity: '1,748 US/DE/FR/CA/CN equities via Pyth oracle — all seeded at startup',
+      fx: '290 FX pairs via Pyth oracle',
+      metals_commodities: '11 metals/commodities via Pyth oracle (XAU, XAG, XPT, XCU...)',
       hive_native: ['HIVE-CREDIT/USDC'],
     },
     integrations: {
@@ -278,6 +292,7 @@ app.use('/v1/exchange/leaderboard', leaderboardRouter);
 app.use('/v1/exchange/perps',        perpsRouter);
 app.use('/v1/exchange/derivatives',  derivativesRouter);
 app.use('/v1/exchange/portfolio',   portfolioRouter);
+app.use('/v1/exchange/ratings',     trustRatingsRouter);
 
 
 // ─── GET /v1/exchange/genesis/feed — active genesis agents ───────────────────
@@ -496,7 +511,7 @@ app.get('/mcp', (_req, res) => {
     name: 'hiveexchange-mcp',
     version: '1.0.0',
     protocol: 'MCP 2024-11-05',
-    description: 'MCP server for HiveExchange — place predictions on 429 live markets, open perpetual futures, trade derivatives. USDC settlement on Base L2. 58 genesis agents already trading.',
+    description: 'MCP server for HiveExchange — 2,049 live Pyth-oracle markets (1,748 equity + 290 FX + 11 metals), perpetual futures, derivatives, and agent credit ratings. USDC settlement on Base L2.',
     endpoint: 'POST /mcp',
     homepage: 'https://hiveexchange-service.onrender.com',
     website: 'https://www.thehiveryiq.com',
@@ -504,7 +519,8 @@ app.get('/mcp', (_req, res) => {
       'exchange.list_markets', 'exchange.get_market', 'exchange.place_prediction',
       'exchange.get_portfolio', 'exchange.open_perp', 'exchange.list_perp_markets',
       'exchange.get_leaderboard', 'exchange.get_prices', 'exchange.list_pools',
-      'exchange.list_derivatives', 'exchange.open_derivative', 'exchange.get_genesis_feed'
+      'exchange.list_derivatives', 'exchange.open_derivative', 'exchange.get_genesis_feed',
+      'exchange.rate_agent', 'exchange.market_risk_rating', 'exchange.swift_routing'
     ],
     onboard: 'https://hivegate.onrender.com/v1/gate/onboard',
     markets: 'https://hiveexchange-service.onrender.com/v1/exchange/predict/markets'
@@ -669,6 +685,11 @@ app.use((req, res) => {
       'GET  /v1/exchange/derivatives/positions?did=',
       'POST /v1/exchange/derivatives/positions/:id/exercise',
       'GET  /v1/exchange/derivatives/chain/:underlying',
+      'GET  /v1/exchange/ratings/did/:did',
+      'GET  /v1/exchange/ratings/market/:symbol',
+      'GET  /v1/exchange/ratings/swift-alt/:wallet',
+      'GET  /v1/exchange/ratings/methodology',
+      'GET  /v1/exchange/ratings/compare',
     ],
   });
 });
@@ -817,8 +838,8 @@ async function start() {
   console.log('╔═══════════════════════════════════════════════════════╗');
   console.log('║           HiveExchange — Platform #20                 ║');
   console.log('║   Agent-to-Agent Trading, Prediction & Sports Betting ║');
-  console.log('║   22 Spot Markets · 180 Prediction Markets · 19 Cats  ║');
-  console.log('║   Meta-Markets · Space · Sports · Oracle · Leaderboard║');
+  console.log('║   1,748 Equity + 290 FX + 11 Metal Markets (Pyth Live) ║');
+  console.log('║   Trust Ratings · SWIFT Alt · A2A Credit Intelligence  ║');
   console.log('╚═══════════════════════════════════════════════════════╝');
 
   await initDb();
@@ -826,6 +847,8 @@ async function start() {
     seedSpotMarkets(),
     seedPredictMarkets(),
   ]);
+  // Seed Pyth markets async (don't block startup — 2,049 feeds take a moment)
+  seedPythMarkets().catch(e => console.warn('[seed:pyth] Background seed failed:', e.message));
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`\n[server] HiveExchange running on port ${PORT}`);

@@ -64,6 +64,12 @@ export const VALID_CATEGORIES = [
   'sports',
   'meta',
   'space',
+  // Pyth-oracle markets
+  'synthetic_equity',   // 1,748 US/DE/FR/CA/CN equity feeds
+  'fx',                 // 290 FX pairs
+  'commodity',          // 11 metals & commodities
+  'politics',
+  'vault_recovery',
 ];
 
 // ─── Odds Calculation (LMSR-style simplified) ─────────────────────────────────
