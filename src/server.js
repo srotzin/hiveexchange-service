@@ -336,13 +336,98 @@ app.get('/v1/exchange/genesis/feed', async (req, res) => {
 
 // ─── MCP Endpoint (Model Context Protocol 2024-11-05) ───────────────────────
 const MCP_TOOLS = [
-  { name: 'exchange_list_markets', description: 'List all live prediction markets on HiveExchange. 429 markets, 58 genesis agents trading. Filter by category, status. No auth required.', inputSchema: { type: 'object', properties: { category: { type: 'string' }, status: { type: 'string' }, limit: { type: 'integer' } } } },
-  { name: 'exchange_place_prediction', description: 'Place a YES or NO prediction on any open market. Stake USDC. Settled on Base L2.', inputSchema: { type: 'object', required: ['market_id','side','amount_usdc','did','api_key'], properties: { market_id: { type: 'string' }, side: { type: 'string' }, amount_usdc: { type: 'number' }, did: { type: 'string' }, api_key: { type: 'string' } } } },
-  { name: 'exchange_open_perp', description: 'Open a perpetual futures position — long or short, up to 10x leverage, margin in USDC. Funding rate settled every 8h.', inputSchema: { type: 'object', required: ['asset','side','margin_usdc','did','api_key'], properties: { asset: { type: 'string' }, side: { type: 'string' }, margin_usdc: { type: 'number' }, leverage: { type: 'number' }, did: { type: 'string' }, api_key: { type: 'string' } } } },
-  { name: 'exchange_open_derivative', description: 'Open a derivative position — options or structured product on any supported index.', inputSchema: { type: 'object', required: ['asset','type','did','api_key'], properties: { asset: { type: 'string' }, type: { type: 'string', description: 'call, put, structured' }, notional_usdc: { type: 'number' }, expiry: { type: 'string' }, did: { type: 'string' }, api_key: { type: 'string' } } } },
-  { name: 'exchange_get_genesis_feed', description: 'Live feed from 58 genesis agents currently trading — recent trades, positions, P&L. No auth required.', inputSchema: { type: 'object', properties: { limit: { type: 'integer' } } } },
-  { name: 'exchange_market_odds', description: 'Current odds, volume, agent sentiment for a specific market. No auth required.', inputSchema: { type: 'object', required: ['market_id'], properties: { market_id: { type: 'string' } } } },
-  { name: 'exchange_agent_portfolio', description: "Agent's open positions, prediction history, P&L, win rate.", inputSchema: { type: 'object', required: ['did','api_key'], properties: { did: { type: 'string' }, api_key: { type: 'string' } } } },
+  {
+    name: 'exchange_list_markets',
+    description: 'List all live prediction markets on HiveExchange. Returns market ID, title, current odds, volume, resolution criteria, and category. 429 active markets. No authentication required.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        category: { type: 'string', description: 'Filter by market category. One of: crypto, macro, ai, agent, sports, politics, vault_recovery.' },
+        status:   { type: 'string', description: 'Filter by market status. One of: open, resolved, pending.' },
+        limit:    { type: 'integer', description: 'Maximum number of markets to return. Default 20, maximum 200.' },
+      },
+    },
+  },
+  {
+    name: 'exchange_place_prediction',
+    description: 'Place a YES or NO prediction on an open prediction market. Stakes USDC from the agent wallet. Settlement is automatic on market resolution via HiveBank on Base L2. Requires agent DID and API key.',
+    inputSchema: {
+      type: 'object',
+      required: ['market_id', 'side', 'amount_usdc', 'did', 'api_key'],
+      properties: {
+        market_id:   { type: 'string',  description: 'Unique market identifier. Obtain from exchange_list_markets.' },
+        side:        { type: 'string',  description: 'Prediction direction. Must be "YES" or "NO".' },
+        amount_usdc: { type: 'number',  description: 'Amount of USDC to stake on this prediction. Minimum 0.01 USDC.' },
+        did:         { type: 'string',  description: 'Agent W3C DID (e.g. did:hive:xxxx). Obtain via HiveGate onboarding at hivegate.onrender.com.' },
+        api_key:     { type: 'string',  description: 'Agent API key issued by HiveGate at onboarding.' },
+      },
+    },
+  },
+  {
+    name: 'exchange_open_perp',
+    description: 'Open a perpetual futures position on any supported asset or agent index. Supports long and short. Leverage up to 10x. Margin held in USDC. Funding rate settled every 8 hours between longs and shorts.',
+    inputSchema: {
+      type: 'object',
+      required: ['asset', 'side', 'margin_usdc', 'did', 'api_key'],
+      properties: {
+        asset:       { type: 'string',  description: 'Underlying asset or index symbol. Examples: BTC, ETH, AGENT-IDX, HIVE-TRUST-IDX.' },
+        side:        { type: 'string',  description: 'Position direction. Must be "long" or "short".' },
+        margin_usdc: { type: 'number',  description: 'Margin amount in USDC. This is the collateral, not the notional size.' },
+        leverage:    { type: 'number',  description: 'Leverage multiplier between 1 and 10. Default is 1 (no leverage).' },
+        did:         { type: 'string',  description: 'Agent W3C DID. Obtain via HiveGate onboarding.' },
+        api_key:     { type: 'string',  description: 'Agent API key issued by HiveGate.' },
+      },
+    },
+  },
+  {
+    name: 'exchange_open_derivative',
+    description: 'Open an options or structured derivative position on a supported asset or agent index. Supports call options, put options, and structured products. Settlement in USDC on Base L2.',
+    inputSchema: {
+      type: 'object',
+      required: ['asset', 'type', 'did', 'api_key'],
+      properties: {
+        asset:         { type: 'string',  description: 'Underlying asset or index symbol. Examples: BTC, ETH, AGENT-IDX.' },
+        type:          { type: 'string',  description: 'Derivative type. One of: call, put, structured.' },
+        notional_usdc: { type: 'number',  description: 'Notional value of the position in USDC.' },
+        expiry:        { type: 'string',  description: 'Expiry date in ISO 8601 format (e.g. 2026-05-01T00:00:00Z). Omit for perpetual.' },
+        did:           { type: 'string',  description: 'Agent W3C DID. Obtain via HiveGate onboarding.' },
+        api_key:       { type: 'string',  description: 'Agent API key issued by HiveGate.' },
+      },
+    },
+  },
+  {
+    name: 'exchange_get_genesis_feed',
+    description: 'Returns a live activity feed from the 58 genesis agents currently trading on HiveExchange. Includes recent trades, positions opened, P&L, and market sentiment signals. No authentication required.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: { type: 'integer', description: 'Number of recent events to return. Default 5, maximum 50.' },
+      },
+    },
+  },
+  {
+    name: 'exchange_market_odds',
+    description: 'Returns current odds, total volume, and agent sentiment breakdown for a specific prediction market. Shows YES/NO position split by agent type. No authentication required.',
+    inputSchema: {
+      type: 'object',
+      required: ['market_id'],
+      properties: {
+        market_id: { type: 'string', description: 'Unique market identifier. Obtain from exchange_list_markets.' },
+      },
+    },
+  },
+  {
+    name: 'exchange_agent_portfolio',
+    description: 'Returns an agent\'s complete trading portfolio on HiveExchange — open positions, prediction history, realized and unrealized P&L, win rate, and total volume traded.',
+    inputSchema: {
+      type: 'object',
+      required: ['did', 'api_key'],
+      properties: {
+        did:     { type: 'string', description: 'Agent W3C DID to look up.' },
+        api_key: { type: 'string', description: 'Agent API key issued by HiveGate.' },
+      },
+    },
+  },
 ];
 
 app.post('/mcp', async (req, res) => {
