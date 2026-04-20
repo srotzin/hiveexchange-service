@@ -339,6 +339,7 @@ const MCP_TOOLS = [
   {
     name: 'exchange_list_markets',
     description: 'List all live prediction markets on HiveExchange. Returns market ID, title, current odds, volume, resolution criteria, and category. 429 active markets. No authentication required.',
+    annotations: { readOnlyHint: true, openWorldHint: false },
     inputSchema: {
       type: 'object',
       properties: {
@@ -350,6 +351,7 @@ const MCP_TOOLS = [
   },
   {
     name: 'exchange_place_prediction',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     description: 'Place a YES or NO prediction on an open prediction market. Stakes USDC from the agent wallet. Settlement is automatic on market resolution via HiveBank on Base L2. Requires agent DID and API key.',
     inputSchema: {
       type: 'object',
@@ -365,6 +367,7 @@ const MCP_TOOLS = [
   },
   {
     name: 'exchange_open_perp',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     description: 'Open a perpetual futures position on any supported asset or agent index. Supports long and short. Leverage up to 10x. Margin held in USDC. Funding rate settled every 8 hours between longs and shorts.',
     inputSchema: {
       type: 'object',
@@ -381,6 +384,7 @@ const MCP_TOOLS = [
   },
   {
     name: 'exchange_open_derivative',
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     description: 'Open an options or structured derivative position on a supported asset or agent index. Supports call options, put options, and structured products. Settlement in USDC on Base L2.',
     inputSchema: {
       type: 'object',
@@ -397,6 +401,7 @@ const MCP_TOOLS = [
   },
   {
     name: 'exchange_get_genesis_feed',
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description: 'Returns a live activity feed from the 58 genesis agents currently trading on HiveExchange. Includes recent trades, positions opened, P&L, and market sentiment signals. No authentication required.',
     inputSchema: {
       type: 'object',
@@ -407,6 +412,7 @@ const MCP_TOOLS = [
   },
   {
     name: 'exchange_market_odds',
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description: 'Returns current odds, total volume, and agent sentiment breakdown for a specific prediction market. Shows YES/NO position split by agent type. No authentication required.',
     inputSchema: {
       type: 'object',
@@ -418,6 +424,7 @@ const MCP_TOOLS = [
   },
   {
     name: 'exchange_agent_portfolio',
+    annotations: { readOnlyHint: true, openWorldHint: false },
     description: 'Returns an agent\'s complete trading portfolio on HiveExchange — open positions, prediction history, realized and unrealized P&L, win rate, and total volume traded.',
     inputSchema: {
       type: 'object',
@@ -430,32 +437,151 @@ const MCP_TOOLS = [
   },
 ];
 
+// ─── MCP Prompts ──────────────────────────────────────────────────────────────
+const MCP_PROMPTS = [
+  {
+    name: 'browse_markets',
+    description: 'Browse open prediction markets on HiveExchange and find ones relevant to a topic.',
+    arguments: [
+      { name: 'topic', description: 'Topic or keyword to search for (e.g. "AI", "crypto", "macro")', required: false },
+    ],
+  },
+  {
+    name: 'agent_trading_summary',
+    description: 'Get a summary of an agent\'s trading activity, P&L, and open positions on HiveExchange.',
+    arguments: [
+      { name: 'did', description: 'Agent W3C DID to summarize', required: true },
+    ],
+  },
+  {
+    name: 'open_perp_position',
+    description: 'Guide an agent through opening a perpetual futures position — select asset, side, margin, and leverage.',
+    arguments: [
+      { name: 'asset', description: 'Asset to trade (e.g. BTC, ETH, AGENT-IDX)', required: false },
+    ],
+  },
+];
+
+// ─── Config schema (optional config for Smithery UX) ─────────────────────────
+const MCP_CONFIG_SCHEMA = {
+  type: 'object',
+  properties: {
+    did: {
+      type: 'string',
+      title: 'Agent DID',
+      description: 'Your agent\'s W3C DID (e.g. did:hive:xxxx). Obtain free at https://hivegate.onrender.com/v1/gate/onboard. Required for placing trades.',
+      'x-order': 0,
+    },
+    api_key: {
+      type: 'string',
+      title: 'API Key',
+      description: 'Your Hive API key, issued at onboarding. Required for placing predictions, opening positions, and viewing your portfolio.',
+      'x-sensitive': true,
+      'x-order': 1,
+    },
+    default_rail: {
+      type: 'string',
+      title: 'Settlement Rail',
+      description: 'Default settlement rail for trades. base-usdc is fastest (Base L2). aleo-usdcx is ZK-private.',
+      enum: ['base-usdc', 'aleo-usdcx'],
+      default: 'base-usdc',
+      'x-order': 2,
+    },
+  },
+  required: [],
+};
+
 app.post('/mcp', async (req, res) => {
   const { jsonrpc, id, method, params } = req.body || {};
   if (jsonrpc !== '2.0') return res.json({ jsonrpc: '2.0', id, error: { code: -32600, message: 'Invalid JSON-RPC' } });
   try {
     if (method === 'initialize') {
-      return res.json({ jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'hiveexchange-mcp', version: '1.0.0', description: "World's first autonomous agent prediction market + perps + derivatives. 429 markets, 58 genesis agents." } } });
+      const clientConfig = params?.config || {};
+      return res.json({
+        jsonrpc: '2.0', id,
+        result: {
+          protocolVersion: '2024-11-05',
+          capabilities: {
+            tools: { listChanged: false },
+            prompts: { listChanged: false },
+            resources: { listChanged: false },
+          },
+          serverInfo: {
+            name: 'hiveexchange-mcp',
+            version: '1.0.0',
+            description: 'MCP server for HiveExchange — place predictions, open perpetual futures, and trade derivatives on an autonomous agent prediction market. 429 live markets. USDC settlement on Base L2.',
+            homepage: 'https://hiveexchange-service.onrender.com',
+            icon: 'https://www.thehiveryiq.com/favicon.ico',
+          },
+          configSchema: MCP_CONFIG_SCHEMA,
+        },
+      });
     }
+
     if (method === 'tools/list') {
       return res.json({ jsonrpc: '2.0', id, result: { tools: MCP_TOOLS } });
     }
+
+    if (method === 'prompts/list') {
+      return res.json({ jsonrpc: '2.0', id, result: { prompts: MCP_PROMPTS } });
+    }
+
+    if (method === 'prompts/get') {
+      const prompt = MCP_PROMPTS.find(p => p.name === params?.name);
+      if (!prompt) return res.json({ jsonrpc: '2.0', id, error: { code: -32602, message: `Prompt not found: ${params?.name}` } });
+      const args = params?.arguments || {};
+      const messages = {
+        browse_markets: [{ role: 'user', content: { type: 'text', text: `List open prediction markets on HiveExchange${args.topic ? ` related to: ${args.topic}` : ''}. Show the market ID, title, current odds, and volume.` } }],
+        agent_trading_summary: [{ role: 'user', content: { type: 'text', text: `Get the trading summary for agent ${args.did || '<did>'}. Show open positions, P&L, and win rate.` } }],
+        open_perp_position: [{ role: 'user', content: { type: 'text', text: `Help me open a perpetual futures position on HiveExchange${args.asset ? ` for ${args.asset}` : ''}. Guide me through choosing the side, margin, and leverage.` } }],
+      };
+      return res.json({ jsonrpc: '2.0', id, result: { messages: messages[prompt.name] || [] } });
+    }
+
+    if (method === 'resources/list') {
+      return res.json({
+        jsonrpc: '2.0', id,
+        result: {
+          resources: [
+            { uri: 'hiveexchange://markets/live', name: 'Live Markets', description: 'All currently open prediction markets on HiveExchange.', mimeType: 'application/json' },
+            { uri: 'hiveexchange://genesis/feed', name: 'Genesis Agent Feed', description: 'Live trading activity from 58 genesis agents.', mimeType: 'application/json' },
+            { uri: 'hiveexchange://health', name: 'Exchange Health', description: 'Current health and stats for HiveExchange.', mimeType: 'application/json' },
+          ],
+        },
+      });
+    }
+
+    if (method === 'resources/read') {
+      const uri = params?.uri;
+      let data;
+      if (uri === 'hiveexchange://markets/live') {
+        data = await fetch(`https://hiveexchange-service.onrender.com/v1/exchange/predict/markets?limit=20`).then(r => r.json());
+      } else if (uri === 'hiveexchange://genesis/feed') {
+        data = await fetch(`https://hiveexchange-service.onrender.com/v1/exchange/genesis/feed?limit=10`).then(r => r.json());
+      } else if (uri === 'hiveexchange://health') {
+        data = await fetch(`https://hiveexchange-service.onrender.com/health`).then(r => r.json());
+      } else {
+        return res.json({ jsonrpc: '2.0', id, error: { code: -32602, message: `Unknown resource: ${uri}` } });
+      }
+      return res.json({ jsonrpc: '2.0', id, result: { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(data, null, 2) }] } });
+    }
+
     if (method === 'tools/call') {
       const { name, arguments: args } = params || {};
-      // Route to existing HiveExchange endpoints
       const toolRoutes = {
-        exchange_list_markets:     () => req.app._router && fetch(`http://localhost:${PORT}/v1/exchange/predict/markets?limit=${args?.limit||20}${args?.category?'&category='+args.category:''}`).then(r=>r.json()),
-        exchange_get_genesis_feed: () => fetch(`http://localhost:${PORT}/v1/exchange/genesis/feed?limit=${args?.limit||5}`).then(r=>r.json()),
-        exchange_market_odds:      () => fetch(`http://localhost:${PORT}/v1/exchange/predict/markets/${args?.market_id}`).then(r=>r.json()),
-        exchange_place_prediction: () => fetch(`http://localhost:${PORT}/v1/exchange/predict/bet`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ market_id: args?.market_id, side: args?.side, amount_usdc: args?.amount_usdc, agent_did: args?.did }) }).then(r=>r.json()),
-        exchange_open_perp:        () => fetch(`http://localhost:${PORT}/v1/exchange/perps/open`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ asset: args?.asset, side: args?.side, margin_usdc: args?.margin_usdc, leverage: args?.leverage||1, agent_did: args?.did }) }).then(r=>r.json()),
-        exchange_open_derivative:  () => fetch(`http://localhost:${PORT}/v1/exchange/derivatives/open`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ asset: args?.asset, type: args?.type, notional_usdc: args?.notional_usdc, expiry: args?.expiry, agent_did: args?.did }) }).then(r=>r.json()),
-        exchange_agent_portfolio:  () => fetch(`http://localhost:${PORT}/v1/exchange/portfolio/${args?.did}`).then(r=>r.json()),
+        exchange_list_markets:     () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/predict/markets?limit=${args?.limit||20}${args?.category?'&category='+args.category:''}${args?.status?'&status='+args.status:''}`).then(r=>r.json()),
+        exchange_get_genesis_feed: () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/genesis/feed?limit=${args?.limit||5}`).then(r=>r.json()),
+        exchange_market_odds:      () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/predict/markets/${args?.market_id}`).then(r=>r.json()),
+        exchange_place_prediction: () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/predict/bet`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ market_id: args?.market_id, side: args?.side, amount_usdc: args?.amount_usdc, agent_did: args?.did, api_key: args?.api_key }) }).then(r=>r.json()),
+        exchange_open_perp:        () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/perps/open`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ asset: args?.asset, side: args?.side, margin_usdc: args?.margin_usdc, leverage: args?.leverage||1, agent_did: args?.did, api_key: args?.api_key }) }).then(r=>r.json()),
+        exchange_open_derivative:  () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/derivatives/open`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ asset: args?.asset, type: args?.type, notional_usdc: args?.notional_usdc, expiry: args?.expiry, agent_did: args?.did, api_key: args?.api_key }) }).then(r=>r.json()),
+        exchange_agent_portfolio:  () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/portfolio/${args?.did}`).then(r=>r.json()),
       };
       if (!toolRoutes[name]) return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Tool not found: ${name}` } });
       const data = await toolRoutes[name]();
       return res.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] } });
     }
+
     if (method === 'ping') return res.json({ jsonrpc: '2.0', id, result: {} });
     return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } });
   } catch (err) {
@@ -464,9 +590,16 @@ app.post('/mcp', async (req, res) => {
 });
 
 app.get('/.well-known/mcp.json', (req, res) => res.json({
-  name: 'hiveexchange-mcp', endpoint: '/mcp', transport: 'streamable-http',
-  protocol: '2024-11-05', homepage: 'https://hiveexchange-service.onrender.com',
+  name: 'hiveexchange-mcp',
+  version: '1.0.0',
+  description: 'MCP server for HiveExchange — prediction markets, perpetuals, and derivatives for autonomous AI agents.',
+  endpoint: '/mcp',
+  transport: 'streamable-http',
+  protocol: '2024-11-05',
+  homepage: 'https://hiveexchange-service.onrender.com',
+  icon: 'https://www.thehiveryiq.com/favicon.ico',
   tools: MCP_TOOLS.map(t => ({ name: t.name, description: t.description })),
+  prompts: MCP_PROMPTS.map(p => ({ name: p.name, description: p.description })),
 }));
 
 // ─── 404 Handler ──────────────────────────────────────────────────────────────
