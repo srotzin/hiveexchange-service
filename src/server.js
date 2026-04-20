@@ -19,6 +19,7 @@ import portfolioRouter from './routes/portfolio.js';
 import trustRatingsRouter from './routes/trust-ratings.js';
 import sportsRouter from './routes/sports.js';
 import faucetRouter from './routes/faucet.js';
+import hivestatusRouter from './routes/hivestatus.js';
 import { rateLimit } from './middleware/rate-limit.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -180,6 +181,11 @@ app.get('/.well-known/hive-pulse.json', (req, res) => {
       faucet_info: '/v1/exchange/faucet/info',
       faucet_claim: '/v1/exchange/faucet/claim',
       faucet_status: '/v1/exchange/faucet/status/:did',
+      agent_status: '/v1/exchange/status/:did',
+      agent_credits: '/v1/exchange/status/credits/:did',
+      referral_join: '/v1/exchange/status/referral/join',
+      referral_stats: '/v1/exchange/status/referral/:did',
+      hivepro_subscribe: '/v1/exchange/status/hivepro/subscribe',
     },
     settlement_rails: {
       usdc:  { network: 'Base L2',  token: 'USDC',  description: 'Circle USDC on Base L2' },
@@ -310,6 +316,7 @@ app.use('/v1/exchange/portfolio',   portfolioRouter);
 app.use('/v1/exchange/ratings',     trustRatingsRouter);
 app.use('/v1/exchange/sports',       sportsRouter);
 app.use('/v1/exchange/faucet',       faucetRouter);
+app.use('/v1/exchange/status',       hivestatusRouter);
 
 
 // ─── GET /v1/exchange/genesis/feed — active genesis agents ───────────────────

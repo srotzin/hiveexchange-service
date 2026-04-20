@@ -342,9 +342,22 @@ router.post('/record-win', requireInternalKey, async (req, res) => {
 
   if (won === true) {
     // Win — reset to 'none' so they can claim next drip
-    ledger.state         = ledger.total_given_usdc >= FAUCET_MAX_USDC ? 'exhausted' : 'none';
+    const streakComplete = ledger.total_given_usdc >= FAUCET_MAX_USDC;
+    ledger.state         = streakComplete ? 'exhausted' : 'none';
     ledger.active_bet_id = null;
     ledger.active_bet_usdc = 0;
+
+    // Notify HiveStatus that this agent completed the full streak
+    if (streakComplete) {
+      const HIVEEXCHANGE_URL = process.env.HIVEEXCHANGE_URL || 'https://hiveexchange-service.onrender.com';
+      const INTERNAL_KEY = process.env.HIVE_INTERNAL_KEY ||
+        'hive_internal_125e04e071e8829be631ea0216dd4a0c9b707975fcecaf8c62c6a2ab43327d46';
+      fetch(`${HIVEEXCHANGE_URL}/v1/exchange/status/faucet-graduated`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-hive-key': INTERNAL_KEY },
+        body: JSON.stringify({ did }),
+      }).catch(e => console.warn('[faucet] graduation notify failed:', e.message));
+    }
   } else {
     // Loss — faucet journey ends. They keep what they have but no more drips.
     ledger.state         = 'exhausted';
