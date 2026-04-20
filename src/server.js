@@ -491,6 +491,26 @@ const MCP_CONFIG_SCHEMA = {
   required: [],
 };
 
+app.get('/mcp', (_req, res) => {
+  res.json({
+    name: 'hiveexchange-mcp',
+    version: '1.0.0',
+    protocol: 'MCP 2024-11-05',
+    description: 'MCP server for HiveExchange — place predictions on 429 live markets, open perpetual futures, trade derivatives. USDC settlement on Base L2. 58 genesis agents already trading.',
+    endpoint: 'POST /mcp',
+    homepage: 'https://hiveexchange-service.onrender.com',
+    website: 'https://www.thehiveryiq.com',
+    tools: [
+      'exchange.list_markets', 'exchange.get_market', 'exchange.place_prediction',
+      'exchange.get_portfolio', 'exchange.open_perp', 'exchange.list_perp_markets',
+      'exchange.get_leaderboard', 'exchange.get_prices', 'exchange.list_pools',
+      'exchange.list_derivatives', 'exchange.open_derivative', 'exchange.get_genesis_feed'
+    ],
+    onboard: 'https://hivegate.onrender.com/v1/gate/onboard',
+    markets: 'https://hiveexchange-service.onrender.com/v1/exchange/predict/markets'
+  });
+});
+
 app.post('/mcp', async (req, res) => {
   const { jsonrpc, id, method, params } = req.body || {};
   if (jsonrpc !== '2.0') return res.json({ jsonrpc: '2.0', id, error: { code: -32600, message: 'Invalid JSON-RPC' } });
