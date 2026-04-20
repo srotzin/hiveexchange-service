@@ -334,6 +334,56 @@ app.get('/v1/exchange/genesis/feed', async (req, res) => {
   }
 });
 
+// ─── MCP Endpoint (Model Context Protocol 2024-11-05) ───────────────────────
+const MCP_TOOLS = [
+  { name: 'exchange_list_markets', description: 'List all live prediction markets on HiveExchange. 429 markets, 58 genesis agents trading. Filter by category, status. No auth required.', inputSchema: { type: 'object', properties: { category: { type: 'string' }, status: { type: 'string' }, limit: { type: 'integer' } } } },
+  { name: 'exchange_place_prediction', description: 'Place a YES or NO prediction on any open market. Stake USDC. Settled on Base L2.', inputSchema: { type: 'object', required: ['market_id','side','amount_usdc','did','api_key'], properties: { market_id: { type: 'string' }, side: { type: 'string' }, amount_usdc: { type: 'number' }, did: { type: 'string' }, api_key: { type: 'string' } } } },
+  { name: 'exchange_open_perp', description: 'Open a perpetual futures position — long or short, up to 10x leverage, margin in USDC. Funding rate settled every 8h.', inputSchema: { type: 'object', required: ['asset','side','margin_usdc','did','api_key'], properties: { asset: { type: 'string' }, side: { type: 'string' }, margin_usdc: { type: 'number' }, leverage: { type: 'number' }, did: { type: 'string' }, api_key: { type: 'string' } } } },
+  { name: 'exchange_open_derivative', description: 'Open a derivative position — options or structured product on any supported index.', inputSchema: { type: 'object', required: ['asset','type','did','api_key'], properties: { asset: { type: 'string' }, type: { type: 'string', description: 'call, put, structured' }, notional_usdc: { type: 'number' }, expiry: { type: 'string' }, did: { type: 'string' }, api_key: { type: 'string' } } } },
+  { name: 'exchange_get_genesis_feed', description: 'Live feed from 58 genesis agents currently trading — recent trades, positions, P&L. No auth required.', inputSchema: { type: 'object', properties: { limit: { type: 'integer' } } } },
+  { name: 'exchange_market_odds', description: 'Current odds, volume, agent sentiment for a specific market. No auth required.', inputSchema: { type: 'object', required: ['market_id'], properties: { market_id: { type: 'string' } } } },
+  { name: 'exchange_agent_portfolio', description: "Agent's open positions, prediction history, P&L, win rate.", inputSchema: { type: 'object', required: ['did','api_key'], properties: { did: { type: 'string' }, api_key: { type: 'string' } } } },
+];
+
+app.post('/mcp', async (req, res) => {
+  const { jsonrpc, id, method, params } = req.body || {};
+  if (jsonrpc !== '2.0') return res.json({ jsonrpc: '2.0', id, error: { code: -32600, message: 'Invalid JSON-RPC' } });
+  try {
+    if (method === 'initialize') {
+      return res.json({ jsonrpc: '2.0', id, result: { protocolVersion: '2024-11-05', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'hiveexchange-mcp', version: '1.0.0', description: "World's first autonomous agent prediction market + perps + derivatives. 429 markets, 58 genesis agents." } } });
+    }
+    if (method === 'tools/list') {
+      return res.json({ jsonrpc: '2.0', id, result: { tools: MCP_TOOLS } });
+    }
+    if (method === 'tools/call') {
+      const { name, arguments: args } = params || {};
+      // Route to existing HiveExchange endpoints
+      const toolRoutes = {
+        exchange_list_markets:     () => req.app._router && fetch(`http://localhost:${PORT}/v1/exchange/predict/markets?limit=${args?.limit||20}${args?.category?'&category='+args.category:''}`).then(r=>r.json()),
+        exchange_get_genesis_feed: () => fetch(`http://localhost:${PORT}/v1/exchange/genesis/feed?limit=${args?.limit||5}`).then(r=>r.json()),
+        exchange_market_odds:      () => fetch(`http://localhost:${PORT}/v1/exchange/predict/markets/${args?.market_id}`).then(r=>r.json()),
+        exchange_place_prediction: () => fetch(`http://localhost:${PORT}/v1/exchange/predict/bet`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ market_id: args?.market_id, side: args?.side, amount_usdc: args?.amount_usdc, agent_did: args?.did }) }).then(r=>r.json()),
+        exchange_open_perp:        () => fetch(`http://localhost:${PORT}/v1/exchange/perps/open`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ asset: args?.asset, side: args?.side, margin_usdc: args?.margin_usdc, leverage: args?.leverage||1, agent_did: args?.did }) }).then(r=>r.json()),
+        exchange_open_derivative:  () => fetch(`http://localhost:${PORT}/v1/exchange/derivatives/open`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ asset: args?.asset, type: args?.type, notional_usdc: args?.notional_usdc, expiry: args?.expiry, agent_did: args?.did }) }).then(r=>r.json()),
+        exchange_agent_portfolio:  () => fetch(`http://localhost:${PORT}/v1/exchange/portfolio/${args?.did}`).then(r=>r.json()),
+      };
+      if (!toolRoutes[name]) return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Tool not found: ${name}` } });
+      const data = await toolRoutes[name]();
+      return res.json({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] } });
+    }
+    if (method === 'ping') return res.json({ jsonrpc: '2.0', id, result: {} });
+    return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Method not found: ${method}` } });
+  } catch (err) {
+    return res.json({ jsonrpc: '2.0', id, error: { code: -32000, message: err.message } });
+  }
+});
+
+app.get('/.well-known/mcp.json', (req, res) => res.json({
+  name: 'hiveexchange-mcp', endpoint: '/mcp', transport: 'streamable-http',
+  protocol: '2024-11-05', homepage: 'https://hiveexchange-service.onrender.com',
+  tools: MCP_TOOLS.map(t => ({ name: t.name, description: t.description })),
+}));
+
 // ─── 404 Handler ──────────────────────────────────────────────────────────────
 app.use((req, res) => {
   res.status(404).json({
