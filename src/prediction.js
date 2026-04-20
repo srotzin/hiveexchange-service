@@ -1,9 +1,43 @@
 // prediction.js — Prediction markets: LMSR odds, betting, resolution, payouts
 import { v4 as uuidv4 } from 'uuid';
+import https from 'https';
+import http from 'http';
 import {
   isInMemory, store, query, memInsert, memGet, memUpdate, memList,
   snapshotMarket, getSnapshots,
 } from './db.js';
+
+// ─── HiveBank resolution fee recorder ──────────────────────────────────
+async function recordResolutionFee(marketId, feeUsdc) {
+  try {
+    const payload = Buffer.from(JSON.stringify({
+      from_did: 'did:hive:hiveexchange-treasury',
+      to_did: 'did:hive:hiveforce-treasury',
+      amount_usdc: feeUsdc,
+      rail: 'base-usdc',
+      memo: `HiveExchange 2% resolution fee — market ${marketId}`,
+      hive_fee_usdc: feeUsdc,
+    }));
+    const url = new URL('https://hivebank.onrender.com/v1/bank/vault/deposit');
+    const lib = url.protocol === 'https:' ? https : http;
+    await new Promise((resolve) => {
+      const req = lib.request({
+        hostname: url.hostname,
+        path: url.pathname,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': payload.length,
+          'x-hive-internal': 'hive_internal_125e04e071e8829be631ea0216dd4a0c9b707975fcecaf8c62c6a2ab43327d46',
+        },
+        timeout: 5000,
+      }, resolve);
+      req.on('error', resolve); // fire and forget
+      req.write(payload);
+      req.end();
+    });
+  } catch (_) { /* fire and forget */ }
+}
 
 export { getSnapshots };
 
@@ -302,12 +336,18 @@ export async function resolveMarket({ market_id, outcome, resolver_did }) {
     );
   }
 
+  // Record 2% resolution fee in HiveBank (fire-and-forget)
+  const feeUsdc = parseFloat((total_pool * HIVE_FEE_PCT).toFixed(8));
+  if (feeUsdc > 0) {
+    recordResolutionFee(market_id, feeUsdc).catch(() => {});
+  }
+
   return {
     market_id,
     outcome,
     resolved_at,
     total_pool_usdc: total_pool,
-    hive_fee_usdc: parseFloat((total_pool * HIVE_FEE_PCT).toFixed(8)),
+    hive_fee_usdc: feeUsdc,
     positions_settled: payouts.length,
     payouts,
   };
