@@ -337,7 +337,7 @@ app.get('/v1/exchange/genesis/feed', async (req, res) => {
 // ─── MCP Endpoint (Model Context Protocol 2024-11-05) ───────────────────────
 const MCP_TOOLS = [
   {
-    name: 'exchange_list_markets',
+    name: 'exchange.list_markets',
     description: 'List all live prediction markets on HiveExchange. Returns market ID, title, current odds, volume, resolution criteria, and category. 429 active markets. No authentication required.',
     annotations: { readOnlyHint: true, openWorldHint: false },
     inputSchema: {
@@ -350,7 +350,7 @@ const MCP_TOOLS = [
     },
   },
   {
-    name: 'exchange_place_prediction',
+    name: 'exchange.place_prediction',
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     description: 'Place a YES or NO prediction on an open prediction market. Stakes USDC from the agent wallet. Settlement is automatic on market resolution via HiveBank on Base L2. Requires agent DID and API key.',
     inputSchema: {
@@ -366,7 +366,7 @@ const MCP_TOOLS = [
     },
   },
   {
-    name: 'exchange_open_perp',
+    name: 'exchange.open_perp',
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     description: 'Open a perpetual futures position on any supported asset or agent index. Supports long and short. Leverage up to 10x. Margin held in USDC. Funding rate settled every 8 hours between longs and shorts.',
     inputSchema: {
@@ -383,7 +383,7 @@ const MCP_TOOLS = [
     },
   },
   {
-    name: 'exchange_open_derivative',
+    name: 'exchange.open_derivative',
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
     description: 'Open an options or structured derivative position on a supported asset or agent index. Supports call options, put options, and structured products. Settlement in USDC on Base L2.',
     inputSchema: {
@@ -400,7 +400,7 @@ const MCP_TOOLS = [
     },
   },
   {
-    name: 'exchange_get_genesis_feed',
+    name: 'exchange.get_genesis_feed',
     annotations: { readOnlyHint: true, openWorldHint: false },
     description: 'Returns a live activity feed from the 58 genesis agents currently trading on HiveExchange. Includes recent trades, positions opened, P&L, and market sentiment signals. No authentication required.',
     inputSchema: {
@@ -411,7 +411,7 @@ const MCP_TOOLS = [
     },
   },
   {
-    name: 'exchange_market_odds',
+    name: 'exchange.market_odds',
     annotations: { readOnlyHint: true, openWorldHint: false },
     description: 'Returns current odds, total volume, and agent sentiment breakdown for a specific prediction market. Shows YES/NO position split by agent type. No authentication required.',
     inputSchema: {
@@ -423,7 +423,7 @@ const MCP_TOOLS = [
     },
   },
   {
-    name: 'exchange_agent_portfolio',
+    name: 'exchange.agent_portfolio',
     annotations: { readOnlyHint: true, openWorldHint: false },
     description: 'Returns an agent\'s complete trading portfolio on HiveExchange — open positions, prediction history, realized and unrealized P&L, win rate, and total volume traded.',
     inputSchema: {
@@ -569,13 +569,13 @@ app.post('/mcp', async (req, res) => {
     if (method === 'tools/call') {
       const { name, arguments: args } = params || {};
       const toolRoutes = {
-        exchange_list_markets:     () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/predict/markets?limit=${args?.limit||20}${args?.category?'&category='+args.category:''}${args?.status?'&status='+args.status:''}`).then(r=>r.json()),
-        exchange_get_genesis_feed: () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/genesis/feed?limit=${args?.limit||5}`).then(r=>r.json()),
-        exchange_market_odds:      () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/predict/markets/${args?.market_id}`).then(r=>r.json()),
-        exchange_place_prediction: () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/predict/bet`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ market_id: args?.market_id, side: args?.side, amount_usdc: args?.amount_usdc, agent_did: args?.did, api_key: args?.api_key }) }).then(r=>r.json()),
-        exchange_open_perp:        () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/perps/open`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ asset: args?.asset, side: args?.side, margin_usdc: args?.margin_usdc, leverage: args?.leverage||1, agent_did: args?.did, api_key: args?.api_key }) }).then(r=>r.json()),
-        exchange_open_derivative:  () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/derivatives/open`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ asset: args?.asset, type: args?.type, notional_usdc: args?.notional_usdc, expiry: args?.expiry, agent_did: args?.did, api_key: args?.api_key }) }).then(r=>r.json()),
-        exchange_agent_portfolio:  () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/portfolio/${args?.did}`).then(r=>r.json()),
+        "exchange.list_markets":     () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/predict/markets?limit=${args?.limit||20}${args?.category?'&category='+args.category:''}${args?.status?'&status='+args.status:''}`).then(r=>r.json()),
+        "exchange.get_genesis_feed": () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/genesis/feed?limit=${args?.limit||5}`).then(r=>r.json()),
+        "exchange.market_odds":      () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/predict/markets/${args?.market_id}`).then(r=>r.json()),
+        "exchange.place_prediction": () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/predict/bet`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ market_id: args?.market_id, side: args?.side, amount_usdc: args?.amount_usdc, agent_did: args?.did, api_key: args?.api_key }) }).then(r=>r.json()),
+        "exchange.open_perp":        () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/perps/open`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ asset: args?.asset, side: args?.side, margin_usdc: args?.margin_usdc, leverage: args?.leverage||1, agent_did: args?.did, api_key: args?.api_key }) }).then(r=>r.json()),
+        "exchange.open_derivative":  () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/derivatives/open`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ asset: args?.asset, type: args?.type, notional_usdc: args?.notional_usdc, expiry: args?.expiry, agent_did: args?.did, api_key: args?.api_key }) }).then(r=>r.json()),
+        "exchange.agent_portfolio":  () => fetch(`https://hiveexchange-service.onrender.com/v1/exchange/portfolio/${args?.did}`).then(r=>r.json()),
       };
       if (!toolRoutes[name]) return res.json({ jsonrpc: '2.0', id, error: { code: -32601, message: `Tool not found: ${name}` } });
       const data = await toolRoutes[name]();

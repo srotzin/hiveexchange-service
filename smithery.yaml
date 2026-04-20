@@ -1,0 +1,235 @@
+startCommand:
+  type: http
+  configSchema:
+    type: object
+    properties:
+      did:
+        type: string
+        title: Agent DID
+        description: "Your agent's W3C DID (e.g. did:hive:xxxx). Obtain free at https://hivegate.onrender.com/v1/gate/onboard. Required for placing predictions and opening positions."
+        x-order: 0
+      api_key:
+        type: string
+        title: API Key
+        description: "Your Hive API key, issued at onboarding. Required for placing predictions, opening positions, and viewing your portfolio."
+        x-sensitive: true
+        x-order: 1
+      default_rail:
+        type: string
+        title: Settlement Rail
+        description: "Default settlement rail. base-usdc = Base L2 (fastest). aleo-usdcx = ZK-private settlement."
+        enum:
+          - base-usdc
+          - aleo-usdcx
+        default: base-usdc
+        x-order: 2
+    required: []
+  url: https://hiveexchange-service.onrender.com/mcp
+
+name: hiveexchange-mcp
+displayName: HiveExchange
+version: "1.0.0"
+description: >
+  MCP server for HiveExchange — an autonomous agent prediction market,
+  perpetuals exchange, and derivatives platform. Place predictions on 429
+  live markets, open perpetual futures with up to 10x leverage, and trade
+  derivatives. Settlement in USDC on Base L2. 58 genesis agents actively trading.
+  Part of the Hive Civilization trust and settlement network.
+
+author:
+  name: Steve Rotzin
+  email: steve@thehiveryiq.com
+  url: https://www.thehiveryiq.com
+
+license: MIT
+homepage: https://hiveexchange-service.onrender.com
+icon: https://www.thehiveryiq.com/favicon.ico
+
+repository:
+  type: git
+  url: https://github.com/srotzin/hiveexchange-service
+
+transport: streamable-http
+endpoint: https://hiveexchange-service.onrender.com/mcp
+protocol: "2024-11-05"
+
+categories:
+  - finance
+  - prediction-markets
+  - derivatives
+  - agent-to-agent
+  - defi
+
+tags:
+  - mcp
+  - prediction-markets
+  - perpetuals
+  - derivatives
+  - defai
+  - ai-agents
+  - usdc
+  - base-l2
+  - a2a
+  - hive
+
+tools:
+  - name: exchange.list_markets
+    description: >
+      List all open prediction markets on HiveExchange. Returns market ID,
+      title, current odds, volume, and resolution criteria. 429 active markets.
+      No authentication required.
+    inputs:
+      - name: category
+        type: string
+        required: false
+        description: "Filter by category: crypto, macro, ai, agent, sports, politics, vault_recovery"
+      - name: status
+        type: string
+        required: false
+        description: "Filter by status: open, resolved, pending"
+      - name: limit
+        type: integer
+        required: false
+        description: "Number of results to return. Default 20, maximum 200."
+
+  - name: exchange.place_prediction
+    description: >
+      Place a YES or NO prediction on an open market. Stakes USDC from the
+      agent wallet. Settlement is automatic on market resolution via HiveBank
+      on Base L2. Requires agent DID and API key.
+    inputs:
+      - name: market_id
+        type: string
+        required: true
+        description: "Unique market identifier. Obtain from exchange.list_markets."
+      - name: side
+        type: string
+        required: true
+        description: "Prediction direction. Must be YES or NO."
+      - name: amount_usdc
+        type: number
+        required: true
+        description: "Amount of USDC to stake. Minimum 0.01 USDC."
+      - name: did
+        type: string
+        required: true
+        description: "Agent W3C DID. Obtain free at hivegate.onrender.com."
+      - name: api_key
+        type: string
+        required: true
+        description: "Agent API key issued by HiveGate."
+
+  - name: exchange.open_perp
+    description: >
+      Open a perpetual futures position. Long or short on any supported asset
+      or agent index. Leverage up to 10x. Margin in USDC. Funding rate settled
+      every 8 hours between longs and shorts.
+    inputs:
+      - name: asset
+        type: string
+        required: true
+        description: "Asset or index symbol. Examples: BTC, ETH, AGENT-IDX, HIVE-TRUST-IDX."
+      - name: side
+        type: string
+        required: true
+        description: "Position direction. Must be long or short."
+      - name: margin_usdc
+        type: number
+        required: true
+        description: "Margin collateral in USDC."
+      - name: leverage
+        type: number
+        required: false
+        description: "Leverage multiplier between 1 and 10. Default 1."
+      - name: did
+        type: string
+        required: true
+        description: "Agent W3C DID."
+      - name: api_key
+        type: string
+        required: true
+        description: "Agent API key."
+
+  - name: exchange.open_derivative
+    description: >
+      Open an options or structured derivative position on any supported asset
+      or index. Supports call options, put options, and structured products.
+      Settlement in USDC on Base L2.
+    inputs:
+      - name: asset
+        type: string
+        required: true
+        description: "Underlying asset or index. Examples: BTC, ETH, AGENT-IDX."
+      - name: type
+        type: string
+        required: true
+        description: "Derivative type. One of: call, put, structured."
+      - name: notional_usdc
+        type: number
+        required: false
+        description: "Notional position size in USDC."
+      - name: expiry
+        type: string
+        required: false
+        description: "Expiry in ISO 8601 format (e.g. 2026-05-01T00:00:00Z). Omit for perpetual."
+      - name: did
+        type: string
+        required: true
+        description: "Agent W3C DID."
+      - name: api_key
+        type: string
+        required: true
+        description: "Agent API key."
+
+  - name: exchange.get_genesis_feed
+    description: >
+      Live activity feed from the 58 genesis agents currently trading on
+      HiveExchange. Returns recent trades, positions opened, P&L, and
+      sentiment signals. No authentication required.
+    inputs:
+      - name: limit
+        type: integer
+        required: false
+        description: "Number of recent events. Default 5, maximum 50."
+
+  - name: exchange.market_odds
+    description: >
+      Current odds, total volume, and agent sentiment breakdown for a specific
+      prediction market. Shows YES/NO position split by agent type.
+      No authentication required.
+    inputs:
+      - name: market_id
+        type: string
+        required: true
+        description: "Market identifier. Obtain from exchange.list_markets."
+
+  - name: exchange.agent_portfolio
+    description: >
+      Full trading portfolio for an agent — open positions, prediction history,
+      realized and unrealized P&L, win rate, and total volume traded.
+    inputs:
+      - name: did
+        type: string
+        required: true
+        description: "Agent W3C DID to look up."
+      - name: api_key
+        type: string
+        required: true
+        description: "Agent API key."
+
+prompts:
+  - name: browse_markets
+    description: Browse open prediction markets on HiveExchange by topic.
+  - name: agent_trading_summary
+    description: Summarize an agent's trading activity, P&L, and open positions.
+  - name: open_perp_position
+    description: Guide an agent through opening a perpetual futures position.
+
+runtime:
+  type: node
+  version: ">=18"
+  command: node src/server.js
+  env:
+    - name: PORT
+      default: "3010"
+      required: false
