@@ -321,4 +321,92 @@ router.get('/funding', rateLimit(), (req, res) => {
   }
 });
 
+// ─── GET /v1/exchange/perps/markets/equity — Pyth equity perp markets ─────────
+// 1,748 synthetic equity perps (US/DE/FR/CA/CN)
+// CFTC-safe: agent-to-agent only, no retail, USDC settlement, no CFTC swap registration required
+router.get('/markets/equity', rateLimit(), async (req, res) => {
+  const { country, limit = '50', offset = '0' } = req.query;
+  const lim = Math.min(parseInt(limit), 500);
+  const off = parseInt(offset);
+
+  let equityFeeds = [];
+  try {
+    const r = await fetch('https://hermes.pyth.network/v2/price_feeds?asset_type=equity', { timeout: 15_000 });
+    const data = await r.json();
+    equityFeeds = data.map(f => ({
+      symbol:      f.attributes?.base,
+      display:     `${f.attributes?.base}/${f.attributes?.quote_currency}`,
+      feed_id:     '0x' + f.id,
+      country:     f.attributes?.country || 'US',
+    }));
+  } catch (e) {
+    console.warn('[perps:equity] Pyth unavailable:', e.message);
+    return err(res, 'ORACLE_UNAVAILABLE', 'Pyth feed registry temporarily unavailable', 503);
+  }
+
+  if (country) equityFeeds = equityFeeds.filter(f => f.country === country.toUpperCase());
+  const page    = equityFeeds.slice(off, off + lim);
+  const markets = page.map(f => ({
+    id:              `${f.symbol}-PERP`,
+    symbol:          `${f.symbol}-PERP`,
+    underlying:      f.symbol,
+    quote:           'USDC',
+    pyth_feed_id:    f.feed_id,
+    country:         f.country,
+    mark_price:      null,
+    funding_rate:    0.0001,
+    funding_interval: '8h',
+    leverage_max:    10,
+    margin_currency: 'USDC',
+    settlement:      'usdc',
+    type:            'synthetic_perp',
+    legal_notice:    'Agent-to-agent synthetic perpetual. Not a real securities position. No real shares custodied.',
+  }));
+
+  return res.json({
+    status: 'ok',
+    data: {
+      markets,
+      total:  equityFeeds.length,
+      count:  markets.length,
+      offset: off,
+      limit:  lim,
+      cftc_note: 'Synthetic equity perps on HiveExchange are agent-to-agent positions only. Not offered to retail participants. Not registered swaps under CFTC CEA \u00a72(e). Settled peer-to-peer in USDC on Base L2. No central counterparty.',
+    },
+  });
+});
+
+// ─── GET /v1/exchange/perps/markets/fx — Pyth FX perp markets ────────────────
+router.get('/markets/fx', rateLimit(), async (req, res) => {
+  const { limit = '50', offset = '0' } = req.query;
+  const lim = Math.min(parseInt(limit), 300);
+  const off = parseInt(offset);
+
+  let fxFeeds = [];
+  try {
+    const r = await fetch('https://hermes.pyth.network/v2/price_feeds?asset_type=fx', { timeout: 15_000 });
+    fxFeeds = await r.json();
+  } catch (e) {
+    return err(res, 'ORACLE_UNAVAILABLE', 'Pyth FX feed temporarily unavailable', 503);
+  }
+
+  const page    = fxFeeds.slice(off, off + lim);
+  const markets = page.map(f => ({
+    id:           `FX-${f.attributes?.base}-${f.attributes?.quote_currency}-PERP`,
+    symbol:       `${f.attributes?.base}/${f.attributes?.quote_currency}-PERP`,
+    underlying:   `${f.attributes?.base}/${f.attributes?.quote_currency}`,
+    pyth_feed_id: '0x' + f.id,
+    leverage_max: 20,
+    margin_currency: 'USDC',
+    type:         'fx_perp',
+    funding_rate: 0.00005,
+    funding_interval: '8h',
+  }));
+
+  return res.json({
+    status: 'ok',
+    data: { markets, total: fxFeeds.length, count: markets.length, offset: off, limit: lim },
+  });
+});
+
 export default router;
