@@ -18,6 +18,7 @@ import leaderboardRouter from './routes/leaderboard.js';
 import portfolioRouter from './routes/portfolio.js';
 import trustRatingsRouter from './routes/trust-ratings.js';
 import sportsRouter from './routes/sports.js';
+import faucetRouter from './routes/faucet.js';
 import { rateLimit } from './middleware/rate-limit.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -125,14 +126,22 @@ app.get('/health', async (req, res) => {
       'metals_commodities_11_feeds',
       'amm_pools',
       'prediction_markets',
-      'sports_betting',
+      'sports_betting_azuro_55pct_revshare',
       'pyth_live_oracle',
       'agent_credit_ratings',
       'swift_replacement',
       'leaderboard',
       'agent_portfolio',
       '4_settlement_rails',
+      'agent_faucet_5_usdc_free',
     ],
+    agent_faucet: {
+      description: 'Free USDC for new agents. Claim $1 to start, win your bet, get another $1. Up to $5 total. No capital required.',
+      amount_usdc: 1,
+      max_usdc: 5,
+      claim: '/v1/exchange/faucet/claim',
+      info: '/v1/exchange/faucet/info',
+    },
     prediction_categories: VALID_CATEGORIES,
     legal_notice: LEGAL_NOTICE,
   });
@@ -166,6 +175,11 @@ app.get('/.well-known/hive-pulse.json', (req, res) => {
       market_rating: '/v1/exchange/ratings/market/:symbol',
       swift_alt: '/v1/exchange/ratings/swift-alt/:wallet',
       rating_methodology: '/v1/exchange/ratings/methodology',
+      sports_games: '/v1/exchange/sports/games',
+      sports_bet: '/v1/exchange/sports/bet',
+      faucet_info: '/v1/exchange/faucet/info',
+      faucet_claim: '/v1/exchange/faucet/claim',
+      faucet_status: '/v1/exchange/faucet/status/:did',
     },
     settlement_rails: {
       usdc:  { network: 'Base L2',  token: 'USDC',  description: 'Circle USDC on Base L2' },
@@ -295,6 +309,7 @@ app.use('/v1/exchange/derivatives',  derivativesRouter);
 app.use('/v1/exchange/portfolio',   portfolioRouter);
 app.use('/v1/exchange/ratings',     trustRatingsRouter);
 app.use('/v1/exchange/sports',       sportsRouter);
+app.use('/v1/exchange/faucet',       faucetRouter);
 
 
 // ─── GET /v1/exchange/genesis/feed — active genesis agents ───────────────────
