@@ -17,6 +17,7 @@ import settleRouter from './routes/settle.js';
 import leaderboardRouter from './routes/leaderboard.js';
 import portfolioRouter from './routes/portfolio.js';
 import trustRatingsRouter from './routes/trust-ratings.js';
+import sportsRouter from './routes/sports.js';
 import { rateLimit } from './middleware/rate-limit.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -293,6 +294,7 @@ app.use('/v1/exchange/perps',        perpsRouter);
 app.use('/v1/exchange/derivatives',  derivativesRouter);
 app.use('/v1/exchange/portfolio',   portfolioRouter);
 app.use('/v1/exchange/ratings',     trustRatingsRouter);
+app.use('/v1/exchange/sports',       sportsRouter);
 
 
 // ─── GET /v1/exchange/genesis/feed — active genesis agents ───────────────────
