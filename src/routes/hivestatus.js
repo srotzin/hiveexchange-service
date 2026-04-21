@@ -14,12 +14,10 @@
  * HivePro: $9.99/mo, requires Core tier
  */
 
-'use strict';
-
-const express = require('express');
+import express from 'express';
 const router  = express.Router();
-const db      = require('../db');          // same pg pool used by faucet
-const { v4: uuidv4 } = require('uuid');
+import { query , isInMemory} from '../db.js';          // same pg pool used by faucet
+import { v4 as uuidv4 } from 'uuid';
 
 const INTERNAL_KEY = process.env.HIVE_INTERNAL_KEY ||
   'hive_internal_125e04e071e8829be631ea0216dd4a0c9b707975fcecaf8c62c6a2ab43327d46';
@@ -52,8 +50,9 @@ const DAILY_CREDIT_CAP = 300;  // $ max graduation credits issued per day
 
 // ── DB bootstrap ──────────────────────────────────────────────────────────────
 
-async function ensureTables() {
-  await db.query(`
+export async function ensureTables() {
+  if (isInMemory()) return; // no-op in memory mode
+  await query(`
     CREATE TABLE IF NOT EXISTS agent_status (
       did               TEXT PRIMARY KEY,
       lifetime_spend    NUMERIC(12,4) DEFAULT 0,
@@ -70,7 +69,7 @@ async function ensureTables() {
     );
   `);
 
-  await db.query(`
+  await query(`
     CREATE TABLE IF NOT EXISTS referral_events (
       id            SERIAL PRIMARY KEY,
       referrer_did  TEXT NOT NULL,
@@ -81,7 +80,7 @@ async function ensureTables() {
     );
   `);
 
-  await db.query(`
+  await query(`
     CREATE TABLE IF NOT EXISTS credit_ledger (
       id          SERIAL PRIMARY KEY,
       did         TEXT NOT NULL,
@@ -93,7 +92,7 @@ async function ensureTables() {
     );
   `);
 
-  await db.query(`
+  await query(`
     CREATE TABLE IF NOT EXISTS hivepro_subscriptions (
       id            SERIAL PRIMARY KEY,
       did           TEXT NOT NULL,
@@ -106,7 +105,6 @@ async function ensureTables() {
   `);
 }
 
-ensureTables().catch(err => console.error('[HiveStatus] DB init error:', err));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -136,10 +134,10 @@ function computeTier(lifetimeSpend, lastSpendAt) {
 }
 
 async function getOrCreateAgent(did) {
-  let row = (await db.query('SELECT * FROM agent_status WHERE did=$1', [did])).rows[0];
+  let row = (await query('SELECT * FROM agent_status WHERE did=$1', [did])).rows[0];
   if (!row) {
     const code = uuidv4().replace(/-/g,'').slice(0,10).toUpperCase();
-    row = (await db.query(`
+    row = (await query(`
       INSERT INTO agent_status (did, referral_code) VALUES ($1,$2)
       ON CONFLICT (did) DO UPDATE SET updated_at=NOW()
       RETURNING *
@@ -149,7 +147,7 @@ async function getOrCreateAgent(did) {
 }
 
 async function todaysCreditIssuance() {
-  const res = await db.query(`
+  const res = await query(`
     SELECT COALESCE(SUM(amount),0) AS total
     FROM credit_ledger
     WHERE reason='graduation' AND created_at >= NOW() - INTERVAL '24 hours'
@@ -175,7 +173,7 @@ router.get('/:did', async (req, res) => {
     const tier  = computeTier(agent.lifetime_spend, agent.last_spend_at);
 
     // Available credits
-    const credits = (await db.query(`
+    const credits = (await query(`
       SELECT COALESCE(SUM(amount),0) AS total
       FROM credit_ledger
       WHERE did=$1 AND used=FALSE AND (expires_at IS NULL OR expires_at > NOW())
@@ -221,7 +219,7 @@ router.post('/spend', requireInternalKey, async (req, res) => {
     const prevSpend = parseFloat(agent.lifetime_spend);
     const newSpend  = prevSpend + parseFloat(amount_usd);
 
-    await db.query(`
+    await query(`
       UPDATE agent_status
       SET lifetime_spend=$1, last_spend_at=NOW(), updated_at=NOW()
       WHERE did=$2
@@ -241,11 +239,11 @@ router.post('/spend', requireInternalKey, async (req, res) => {
     ) {
       const todayTotal = await todaysCreditIssuance();
       if (todayTotal + GRADUATION_CREDIT <= DAILY_CREDIT_CAP) {
-        await db.query(`
+        await query(`
           INSERT INTO credit_ledger (did, amount, reason, expires_at)
           VALUES ($1, $2, 'graduation', NOW() + INTERVAL '7 days')
         `, [did, GRADUATION_CREDIT]);
-        await db.query(`
+        await query(`
           UPDATE agent_status SET graduation_credit_issued=TRUE, updated_at=NOW() WHERE did=$1
         `, [did]);
         graduationCreditIssued = true;
@@ -256,21 +254,21 @@ router.post('/spend', requireInternalKey, async (req, res) => {
     // If recruit just crossed $10 lifetime spend and hasn't triggered reward yet
     let referralRewardPaid = false;
     if (agent.referred_by && prevSpend < REFERRAL_THRESHOLD && newSpend >= REFERRAL_THRESHOLD) {
-      const alreadyPaid = (await db.query(`
+      const alreadyPaid = (await query(`
         SELECT id FROM referral_events WHERE recruit_did=$1 AND reward_paid > 0
       `, [did])).rows.length > 0;
 
       if (!alreadyPaid) {
-        const referrer = (await db.query('SELECT * FROM agent_status WHERE referral_code=$1', [agent.referred_by])).rows[0];
+        const referrer = (await query('SELECT * FROM agent_status WHERE referral_code=$1', [agent.referred_by])).rows[0];
         if (referrer) {
           const referrerTier = computeTier(referrer.lifetime_spend, referrer.last_spend_at);
           if (referrerTier.name === 'Elite') {
             // Issue $1 credit to referrer (HiveBank disburses on withdrawal)
-            await db.query(`
+            await query(`
               INSERT INTO credit_ledger (did, amount, reason)
               VALUES ($1, $2, 'referral_reward')
             `, [referrer.did, REFERRAL_REWARD]);
-            await db.query(`
+            await query(`
               INSERT INTO referral_events (referrer_did, recruit_did, reward_paid, paid_at)
               VALUES ($1, $2, $3, NOW())
             `, [referrer.did, did, REFERRAL_REWARD]);
@@ -306,7 +304,7 @@ router.post('/faucet-graduated', requireInternalKey, async (req, res) => {
   if (!did) return res.status(400).json({ error: 'did required' });
   try {
     await getOrCreateAgent(did);
-    await db.query(`
+    await query(`
       UPDATE agent_status SET faucet_graduated=TRUE, updated_at=NOW() WHERE did=$1
     `, [did]);
     res.json({ did, graduated: true, message: 'Spend $10 on any Hive service to unlock $3 HiveCredit' });
@@ -328,16 +326,16 @@ router.post('/referral/join', async (req, res) => {
     if (agent.referred_by) return res.status(409).json({ error: 'already_referred' });
 
     // Validate code
-    const referrer = (await db.query('SELECT did FROM agent_status WHERE referral_code=$1', [referral_code])).rows[0];
+    const referrer = (await query('SELECT did FROM agent_status WHERE referral_code=$1', [referral_code])).rows[0];
     if (!referrer) return res.status(404).json({ error: 'invalid_referral_code' });
     if (referrer.did === did) return res.status(400).json({ error: 'self_referral_not_allowed' });
 
-    await db.query(`
+    await query(`
       UPDATE agent_status SET referred_by=$1, updated_at=NOW() WHERE did=$2
     `, [referral_code, did]);
 
     // Log referral event (reward pending until recruit spends $10)
-    await db.query(`
+    await query(`
       INSERT INTO referral_events (referrer_did, recruit_did, reward_paid)
       VALUES ($1, $2, 0)
       ON CONFLICT DO NOTHING
@@ -361,7 +359,7 @@ router.get('/referral/:did', async (req, res) => {
       return res.status(403).json({ error: 'referral_program_requires_elite_status', current_tier: tier.name, spend_needed: 500 - parseFloat(agent.lifetime_spend) });
     }
 
-    const events = (await db.query(`
+    const events = (await query(`
       SELECT recruit_did, reward_paid, paid_at FROM referral_events
       WHERE referrer_did=$1 ORDER BY created_at DESC
     `, [agent.did])).rows;
@@ -402,11 +400,11 @@ router.post('/hivepro/subscribe', requireInternalKey, async (req, res) => {
 
     const now   = new Date();
     const end   = new Date(now.getTime() + 30 * 86400000);
-    await db.query(`
+    await query(`
       INSERT INTO hivepro_subscriptions (did, period_start, period_end)
       VALUES ($1, $2, $3)
     `, [did, now, end]);
-    await db.query(`
+    await query(`
       UPDATE agent_status SET hivepro_active=TRUE, hivepro_since=NOW(), updated_at=NOW() WHERE did=$1
     `, [did]);
 
@@ -429,7 +427,7 @@ router.post('/hivepro/subscribe', requireInternalKey, async (req, res) => {
  */
 router.get('/credits/:did', async (req, res) => {
   try {
-    const credits = (await db.query(`
+    const credits = (await query(`
       SELECT id, amount, reason, expires_at, created_at
       FROM credit_ledger
       WHERE did=$1 AND used=FALSE AND (expires_at IS NULL OR expires_at > NOW())
@@ -452,7 +450,7 @@ router.post('/credits/redeem', requireInternalKey, async (req, res) => {
   const { did, credit_id } = req.body;
   if (!did || !credit_id) return res.status(400).json({ error: 'did and credit_id required' });
   try {
-    const result = await db.query(`
+    const result = await query(`
       UPDATE credit_ledger SET used=TRUE
       WHERE id=$1 AND did=$2 AND used=FALSE AND (expires_at IS NULL OR expires_at > NOW())
       RETURNING *
@@ -464,4 +462,4 @@ router.post('/credits/redeem', requireInternalKey, async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

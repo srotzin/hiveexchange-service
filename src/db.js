@@ -207,6 +207,7 @@ export function isInMemory() {
 
 export async function query(sql, params = []) {
   if (useInMemory) throw new Error('In-memory mode — use store directly');
+  if (!pool) throw new Error('DB pool not initialized yet — initDb() not called');
   return pool.query(sql, params);
 }
 

@@ -19,12 +19,10 @@
  * Every GC agent, estimator agent, and procurement agent starts here.
  */
 
-'use strict';
-
-const express = require('express');
+import express from 'express';
 const router  = express.Router();
-const db      = require('../db');
-const { v4: uuidv4 } = require('uuid');
+import { query , isInMemory} from '../db.js';
+import { v4 as uuidv4 } from 'uuid';
 
 const INTERNAL_KEY = process.env.HIVE_INTERNAL_KEY ||
   'hive_internal_125e04e071e8829be631ea0216dd4a0c9b707975fcecaf8c62c6a2ab43327d46';
@@ -68,8 +66,9 @@ const JURISDICTION_FLAGS = {
 
 // ── DB bootstrap ──────────────────────────────────────────────────────────────
 
-async function ensureTables() {
-  await db.query(`
+export async function ensureTables() {
+  if (isInMemory()) return; // no-op in memory mode
+  await query(`
     CREATE TABLE IF NOT EXISTS bom_faucet (
       id              SERIAL PRIMARY KEY,
       did             TEXT NOT NULL,
@@ -85,7 +84,7 @@ async function ensureTables() {
       updated_at      TIMESTAMPTZ DEFAULT NOW()
     );
   `);
-  await db.query(`
+  await query(`
     CREATE TABLE IF NOT EXISTS bom_results (
       id          SERIAL PRIMARY KEY,
       project_id  TEXT NOT NULL,
@@ -97,7 +96,6 @@ async function ensureTables() {
   `);
 }
 
-ensureTables().catch(e => console.error('[Construction] DB init error:', e));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -111,7 +109,7 @@ function isAgent(req) {
 }
 
 async function dailyFreeCount() {
-  const res = await db.query(`
+  const res = await query(`
     SELECT COUNT(*) AS cnt FROM bom_faucet
     WHERE created_at >= NOW() - INTERVAL '24 hours' AND free_boms_used > 0
   `);
@@ -119,7 +117,7 @@ async function dailyFreeCount() {
 }
 
 async function getAgentBOM(did) {
-  const res = await db.query('SELECT * FROM bom_faucet WHERE did=$1 ORDER BY created_at DESC LIMIT 1', [did]);
+  const res = await query('SELECT * FROM bom_faucet WHERE did=$1 ORDER BY created_at DESC LIMIT 1', [did]);
   return res.rows[0] || null;
 }
 
@@ -254,7 +252,7 @@ router.post('/bom/claim', async (req, res) => {
 
     const projectId = `bom-${uuidv4().slice(0, 8)}`;
 
-    await db.query(`
+    await query(`
       INSERT INTO bom_faucet (did, project_id, free_boms_used, ip)
       VALUES ($1, $2, $3, $4)
       ON CONFLICT (project_id) DO NOTHING
@@ -290,7 +288,7 @@ router.post('/bom/submit', async (req, res) => {
 
   try {
     // Verify claimed slot
-    const slot = (await db.query(
+    const slot = (await query(
       'SELECT * FROM bom_faucet WHERE project_id=$1 AND did=$2', [project_id, did]
     )).rows[0];
 
@@ -304,12 +302,12 @@ router.post('/bom/submit', async (req, res) => {
     // Generate BOM
     const bom = generateBOM(materials || [], state || 'CA');
 
-    await db.query(`
+    await query(`
       INSERT INTO bom_results (project_id, did, bom_json, total_cost)
       VALUES ($1, $2, $3, $4)
     `, [project_id, did, JSON.stringify(bom), parseFloat(bom.summary.estimated_material_cost.replace('$',''))]);
 
-    await db.query(`
+    await query(`
       UPDATE bom_faucet SET project_name=$1, scope=$2, state='submitted', updated_at=NOW()
       WHERE project_id=$3
     `, [project_name || 'Unnamed Project', scope || 'General', project_id]);
@@ -342,14 +340,14 @@ router.post('/bom/win', async (req, res) => {
   }
 
   try {
-    const slot = (await db.query(
+    const slot = (await query(
       'SELECT * FROM bom_faucet WHERE project_id=$1 AND did=$2', [project_id, did]
     )).rows[0];
 
     if (!slot) return res.status(404).json({ error: 'project_not_found' });
     if (slot.win_reported) return res.status(409).json({ error: 'win_already_reported', message: 'Win already recorded for this project.' });
 
-    await db.query(`
+    await query(`
       UPDATE bom_faucet SET win_reported=TRUE, credit_earned=1.00, state='won', updated_at=NOW()
       WHERE project_id=$1
     `, [project_id]);
@@ -363,7 +361,7 @@ router.post('/bom/win', async (req, res) => {
     }).catch(() => {});
 
     // Also issue credit directly
-    await db.query(`
+    await query(`
       INSERT INTO credit_ledger (did, amount, reason, expires_at)
       VALUES ($1, 1.00, 'bom_win', NOW() + INTERVAL '30 days')
     `).catch(() => {}); // credit_ledger may be on different schema — non-blocking
@@ -391,7 +389,7 @@ router.post('/bom/win', async (req, res) => {
 router.get('/bom/:project_id', async (req, res) => {
   const did = req.headers['x-hive-did'];
   try {
-    const result = (await db.query(
+    const result = (await query(
       'SELECT * FROM bom_results WHERE project_id=$1 AND did=$2 ORDER BY created_at DESC LIMIT 1',
       [req.params.project_id, did]
     )).rows[0];
@@ -409,7 +407,7 @@ router.get('/bom/:project_id', async (req, res) => {
  */
 router.get('/leaderboard', async (req, res) => {
   try {
-    const rows = (await db.query(`
+    const rows = (await query(`
       SELECT did, COUNT(*) FILTER (WHERE win_reported) AS wins,
              COUNT(*) AS total_boms, SUM(credit_earned) AS total_credits
       FROM bom_faucet
@@ -431,4 +429,4 @@ router.get('/leaderboard', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

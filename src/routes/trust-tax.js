@@ -19,11 +19,9 @@
  *    they have to pay a Trust Tax to get a HiveTrust score." — Kaleidoscope Doc
  */
 
-'use strict';
-
-const express = require('express');
+import express from 'express';
 const router  = express.Router();
-const db      = require('../db');
+import { query , isInMemory} from '../db.js';
 
 const INTERNAL_KEY = process.env.HIVE_INTERNAL_KEY ||
   'hive_internal_125e04e071e8829be631ea0216dd4a0c9b707975fcecaf8c62c6a2ab43327d46';
@@ -61,8 +59,9 @@ function price(req, key) {
 
 // ── DB bootstrap ──────────────────────────────────────────────────────────────
 
-async function ensureTables() {
-  await db.query(`
+export async function ensureTables() {
+  if (isInMemory()) return; // no-op in memory mode
+  await query(`
     CREATE TABLE IF NOT EXISTS trust_tax_ledger (
       id            SERIAL PRIMARY KEY,
       payer_did     TEXT NOT NULL,
@@ -74,7 +73,7 @@ async function ensureTables() {
       created_at    TIMESTAMPTZ DEFAULT NOW()
     );
   `);
-  await db.query(`
+  await query(`
     CREATE TABLE IF NOT EXISTS trust_badges (
       did           TEXT PRIMARY KEY,
       badge_level   TEXT NOT NULL,
@@ -84,7 +83,7 @@ async function ensureTables() {
       on_chain_proof TEXT
     );
   `);
-  await db.query(`
+  await query(`
     CREATE TABLE IF NOT EXISTS trust_tax_subscriptions (
       id            SERIAL PRIMARY KEY,
       payer_did     TEXT NOT NULL,
@@ -98,7 +97,6 @@ async function ensureTables() {
   `);
 }
 
-ensureTables().catch(e => console.error('[TrustTax] DB init error:', e));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -225,7 +223,7 @@ router.get('/lookup/:did', requirePayment('lookup'), async (req, res) => {
     const tier  = scoreTier(score);
 
     // Log to ledger
-    await db.query(`
+    await query(`
       INSERT INTO trust_tax_ledger (payer_did, subject_did, tier, amount_usdc, caller_type, payment_proof)
       VALUES ($1,$2,$3,$4,$5,$6)
     `, [
@@ -267,7 +265,7 @@ router.post('/verify', requirePayment('verify'), async (req, res) => {
     const score = trust?.data?.score || trust?.score || Math.floor(Math.random() * 400 + 400);
     const tier  = scoreTier(score);
 
-    await db.query(`
+    await query(`
       INSERT INTO trust_tax_ledger (payer_did, subject_did, tier, amount_usdc, caller_type, payment_proof)
       VALUES ($1,$2,$3,$4,$5,$6)
     `, [
@@ -320,13 +318,13 @@ router.post('/badge', requirePayment('badge'), async (req, res) => {
     const proof  = `hive:badge:${did}:${tier}:${Date.now()}`;
     const expiry = new Date(Date.now() + 365 * 86400000); // 1 year
 
-    await db.query(`
+    await query(`
       INSERT INTO trust_badges (did, badge_level, expires_at, on_chain_proof)
       VALUES ($1,$2,$3,$4)
       ON CONFLICT (did) DO UPDATE SET badge_level=$2, issued_at=NOW(), expires_at=$3, on_chain_proof=$4
     `, [did, tier, expiry, proof]);
 
-    await db.query(`
+    await query(`
       INSERT INTO trust_tax_ledger (payer_did, subject_did, tier, amount_usdc, caller_type, payment_proof)
       VALUES ($1,$2,$3,$4,$5,$6)
     `, [
@@ -358,7 +356,7 @@ router.post('/badge', requirePayment('badge'), async (req, res) => {
  */
 router.get('/badge/verify/:did', async (req, res) => {
   try {
-    const badge = (await db.query(`
+    const badge = (await query(`
       SELECT * FROM trust_badges WHERE did=$1
     `, [req.params.did])).rows[0];
 
@@ -388,14 +386,14 @@ router.get('/revenue', (req, res, next) => {
   next();
 }, async (req, res) => {
   try {
-    const daily = (await db.query(`
+    const daily = (await query(`
       SELECT COALESCE(SUM(amount_usdc),0) AS total, COUNT(*) AS count, caller_type
       FROM trust_tax_ledger
       WHERE created_at >= NOW() - INTERVAL '24 hours'
       GROUP BY caller_type
     `)).rows;
 
-    const total = (await db.query(`
+    const total = (await query(`
       SELECT COALESCE(SUM(amount_usdc),0) AS total, COUNT(*) AS count
       FROM trust_tax_ledger
     `)).rows[0];
@@ -406,4 +404,4 @@ router.get('/revenue', (req, res, next) => {
   }
 });
 
-module.exports = router;
+export default router;

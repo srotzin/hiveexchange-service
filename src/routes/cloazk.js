@@ -48,12 +48,10 @@
  * This is infrastructure. Build it first. Everything else builds on it.
  */
 
-'use strict';
-
-const express  = require('express');
+import express from 'express';
 const router   = express.Router();
-const crypto   = require('crypto');
-const db       = require('../db');
+import crypto from 'crypto';
+import { query , isInMemory} from '../db.js';
 
 const INTERNAL_KEY       = process.env.HIVE_INTERNAL_KEY ||
   'hive_internal_125e04e071e8829be631ea0216dd4a0c9b707975fcecaf8c62c6a2ab43327d46';
@@ -62,8 +60,9 @@ const BASE_ATTEST_PRICE  = 0.05;  // $0.05 human / $0.50 agent
 
 // ── DB bootstrap ──────────────────────────────────────────────────────────────
 
-async function ensureTables() {
-  await db.query(`
+export async function ensureTables() {
+  if (isInMemory()) return; // no-op in memory mode
+  await query(`
     CREATE TABLE IF NOT EXISTS cloazk_attestations (
       id              SERIAL PRIMARY KEY,
       attestation_id  TEXT UNIQUE NOT NULL,
@@ -80,7 +79,7 @@ async function ensureTables() {
       created_at      TIMESTAMPTZ DEFAULT NOW()
     );
   `);
-  await db.query(`
+  await query(`
     CREATE TABLE IF NOT EXISTS cloazk_viewkeys (
       id              SERIAL PRIMARY KEY,
       attestation_id  TEXT NOT NULL,
@@ -93,7 +92,7 @@ async function ensureTables() {
       created_at      TIMESTAMPTZ DEFAULT NOW()
     );
   `);
-  await db.query(`
+  await query(`
     CREATE TABLE IF NOT EXISTS cloazk_enterprise (
       did             TEXT PRIMARY KEY,
       license_type    TEXT DEFAULT 'per_attestation',
@@ -106,7 +105,6 @@ async function ensureTables() {
   `);
 }
 
-ensureTables().catch(e => console.error('[CLOAzK] DB init error:', e));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -242,7 +240,7 @@ router.post('/attest', requirePayment, async (req, res) => {
   // Type-specific proof summary (what the attestation says without revealing inputs)
   const proofSummary = buildProofSummary(type, claims, subject_did);
 
-  await db.query(`
+  await query(`
     INSERT INTO cloazk_attestations
       (attestation_id, type, subject_did, subject_entity, proof_hash, proof_summary,
        expires_at, payer_did, amount_usdc, caller_type)
@@ -340,7 +338,7 @@ function buildProofSummary(type, claims, did) {
  */
 router.get('/verify/:attestation_id', async (req, res) => {
   try {
-    const row = (await db.query(
+    const row = (await query(
       'SELECT * FROM cloazk_attestations WHERE attestation_id=$1',
       [req.params.attestation_id]
     )).rows[0];
@@ -384,7 +382,7 @@ router.post('/viewkey', async (req, res) => {
     return res.status(400).json({ error: 'attestation_id, authorized_by, and legal_basis required' });
   }
 
-  const attestation = (await db.query(
+  const attestation = (await query(
     'SELECT * FROM cloazk_attestations WHERE attestation_id=$1', [attestation_id]
   )).rows[0];
   if (!attestation) return res.status(404).json({ error: 'attestation_not_found' });
@@ -396,7 +394,7 @@ router.post('/viewkey', async (req, res) => {
   const expiresAt  = new Date(Date.now() + duration_hours * 3600000);
   const auditProof = `cloazk:viewkey:audit:${crypto.randomBytes(8).toString('hex')}`;
 
-  await db.query(`
+  await query(`
     INSERT INTO cloazk_viewkeys (attestation_id, viewkey_hash, authorized_by, legal_basis, expires_at, audit_proof)
     VALUES ($1,$2,$3,$4,$5,$6)
   `, [attestation_id, viewkeyHash, authorized_by, legal_basis, expiresAt, auditProof]);
@@ -420,13 +418,13 @@ router.post('/viewkey', async (req, res) => {
 router.get('/revenue', async (req, res) => {
   if (req.headers['x-hive-key'] !== INTERNAL_KEY) return res.status(403).json({ error: 'forbidden' });
   try {
-    const daily = (await db.query(`
+    const daily = (await query(`
       SELECT type, COUNT(*) AS count, COALESCE(SUM(amount_usdc),0) AS revenue, caller_type
       FROM cloazk_attestations
       WHERE created_at >= NOW() - INTERVAL '24 hours'
       GROUP BY type, caller_type ORDER BY revenue DESC
     `)).rows;
-    const total = (await db.query(`
+    const total = (await query(`
       SELECT COUNT(*) AS total_attestations, COALESCE(SUM(amount_usdc),0) AS total_revenue
       FROM cloazk_attestations
     `)).rows[0];
@@ -436,4 +434,4 @@ router.get('/revenue', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

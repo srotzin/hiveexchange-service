@@ -42,12 +42,10 @@
  *   #21 ZK Mining Revenue Proof              — $500 human / $5,000 agent
  */
 
-'use strict';
-
-const express = require('express');
+import express from 'express';
 const router  = express.Router();
-const crypto  = require('crypto');
-const db      = require('../db');
+import crypto from 'crypto';
+import { query , isInMemory} from '../db.js';
 
 const INTERNAL_KEY = process.env.HIVE_INTERNAL_KEY ||
   'hive_internal_125e04e071e8829be631ea0216dd4a0c9b707975fcecaf8c62c6a2ab43327d46';
@@ -103,7 +101,7 @@ function gate(basePrice) {
 
 async function saveAttestation(type, subjectDid, subjectEntity, proofObj, payerDid, amount, callerType, expiresAt = null) {
   const id = `cloazk-${type}-${crypto.randomBytes(8).toString('hex')}`;
-  await db.query(`
+  await query(`
     INSERT INTO cloazk_attestations
       (attestation_id, type, subject_did, subject_entity, proof_hash, proof_summary,
        expires_at, payer_did, amount_usdc, caller_type)
@@ -148,7 +146,7 @@ router.post('/kya/screen', gate(5), async (req, res) => {
     req.headers['x-hive-did'], req._price, req._callerType);
 
   // Also update HiveTrust registry
-  await db.query(`
+  await query(`
     INSERT INTO malpractice_registry (did, domain, risk_level)
     VALUES ($1, 'general', 'unrated')
     ON CONFLICT (did) DO NOTHING
@@ -364,7 +362,7 @@ router.post('/credit-score/prove', gate(1), async (req, res) => {
   // Pull actual HiveTrust score
   let actualScore = null;
   try {
-    const row = (await db.query('SELECT * FROM agent_status WHERE did=$1', [did])).rows[0];
+    const row = (await query('SELECT * FROM agent_status WHERE did=$1', [did])).rows[0];
     if (row) {
       const spend = parseFloat(row.lifetime_spend || 0);
       actualScore = Math.min(850, 300 + Math.floor(spend * 2));
@@ -493,4 +491,4 @@ router.post('/mining/prove', gate(500), async (req, res) => {
   });
 });
 
-module.exports = router;
+export default router;

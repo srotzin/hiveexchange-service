@@ -190,7 +190,6 @@ async function ensureTables() {
   `);
 }
 
-ensureTables().catch(e => console.error('intent tables:', e));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

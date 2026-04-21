@@ -21,12 +21,10 @@
  * Silicon Premium applies to agent subscribers (10x).
  */
 
-'use strict';
-
-const express = require('express');
+import express from 'express';
 const router  = express.Router();
-const db      = require('../db');
-const { v4: uuidv4 } = require('uuid');
+import { query , isInMemory} from '../db.js';
+import { v4 as uuidv4 } from 'uuid';
 
 const INTERNAL_KEY = process.env.HIVE_INTERNAL_KEY ||
   'hive_internal_125e04e071e8829be631ea0216dd4a0c9b707975fcecaf8c62c6a2ab43327d46';
@@ -64,8 +62,9 @@ const TIERS = {
   },
 };
 
-async function ensureTables() {
-  await db.query(`
+export async function ensureTables() {
+  if (isInMemory()) return; // no-op in memory mode
+  await query(`
     CREATE TABLE IF NOT EXISTS ghost_staff_subscriptions (
       id            SERIAL PRIMARY KEY,
       did           TEXT NOT NULL,
@@ -83,7 +82,6 @@ async function ensureTables() {
     );
   `);
 }
-ensureTables().catch(e => console.error('[GhostStaff] DB init error:', e));
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -140,7 +138,7 @@ router.post('/subscribe', async (req, res) => {
   const now = new Date();
   const end = new Date(now.getTime() + 30 * 86400000);
 
-  const sub = (await db.query(`
+  const sub = (await query(`
     INSERT INTO ghost_staff_subscriptions
       (did, company_name, tier, price_usdc, caller_type, period_start, period_end)
     VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -173,7 +171,7 @@ router.post('/subscribe', async (req, res) => {
 
 router.get('/status/:did', async (req, res) => {
   try {
-    const sub = (await db.query(
+    const sub = (await query(
       'SELECT * FROM ghost_staff_subscriptions WHERE did=$1 AND status=$2 ORDER BY created_at DESC LIMIT 1',
       [req.params.did, 'active']
     )).rows[0];
@@ -195,7 +193,7 @@ router.get('/status/:did', async (req, res) => {
 router.get('/subscribers', async (req, res) => {
   if (req.headers['x-hive-key'] !== INTERNAL_KEY) return res.status(403).json({ error: 'forbidden' });
   try {
-    const stats = (await db.query(`
+    const stats = (await query(`
       SELECT tier, COUNT(*) AS count, SUM(price_usdc) AS mrr
       FROM ghost_staff_subscriptions WHERE status='active'
       GROUP BY tier ORDER BY mrr DESC
@@ -211,4 +209,4 @@ router.get('/subscribers', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

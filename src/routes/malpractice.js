@@ -18,12 +18,10 @@
  *   construction, structural, legal, financial, medical, general
  */
 
-'use strict';
-
-const express = require('express');
+import express from 'express';
 const router  = express.Router();
-const db      = require('../db');
-const crypto  = require('crypto');
+import { query , isInMemory} from '../db.js';
+import crypto from 'crypto';
 
 const INTERNAL_KEY       = process.env.HIVE_INTERNAL_KEY ||
   'hive_internal_125e04e071e8829be631ea0216dd4a0c9b707975fcecaf8c62c6a2ab43327d46';
@@ -34,8 +32,9 @@ const INSTITUTIONAL_ANNUAL = 2500;
 
 // ── DB bootstrap ──────────────────────────────────────────────────────────────
 
-async function ensureTables() {
-  await db.query(`
+export async function ensureTables() {
+  if (isInMemory()) return; // no-op in memory mode
+  await query(`
     CREATE TABLE IF NOT EXISTS malpractice_registry (
       did               TEXT PRIMARY KEY,
       display_name      TEXT,
@@ -53,7 +52,7 @@ async function ensureTables() {
       updated_at        TIMESTAMPTZ DEFAULT NOW()
     );
   `);
-  await db.query(`
+  await query(`
     CREATE TABLE IF NOT EXISTS malpractice_incidents (
       id              SERIAL PRIMARY KEY,
       did             TEXT NOT NULL,
@@ -68,7 +67,7 @@ async function ensureTables() {
       created_at      TIMESTAMPTZ DEFAULT NOW()
     );
   `);
-  await db.query(`
+  await query(`
     CREATE TABLE IF NOT EXISTS malpractice_queries (
       id          SERIAL PRIMARY KEY,
       querier_did TEXT,
@@ -80,7 +79,6 @@ async function ensureTables() {
   `);
 }
 
-ensureTables().catch(e => console.error('[Malpractice] DB init error:', e));
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -173,13 +171,13 @@ router.get('/query/:did', async (req, res) => {
   }
 
   try {
-    let record = (await db.query(
+    let record = (await query(
       'SELECT * FROM malpractice_registry WHERE did=$1', [req.params.did]
     )).rows[0];
 
     // Auto-create unrated record for new DIDs
     if (!record) {
-      await db.query(`
+      await query(`
         INSERT INTO malpractice_registry (did, risk_level) VALUES ($1, 'unrated')
         ON CONFLICT (did) DO NOTHING
       `, [req.params.did]);
@@ -188,19 +186,19 @@ router.get('/query/:did', async (req, res) => {
     }
 
     // Log query
-    await db.query(`
+    await query(`
       INSERT INTO malpractice_queries (querier_did, subject_did, amount_usdc, caller_type)
       VALUES ($1,$2,$3,$4)
     `, [req.headers['x-hive-did'] || 'anonymous', req.params.did, price, agent ? 'agent' : 'human']);
 
     // Update total_queries
-    await db.query(
+    await query(
       'UPDATE malpractice_registry SET total_queries=total_queries+1, updated_at=NOW() WHERE did=$1',
       [req.params.did]
     );
 
     // Recent incidents
-    const incidents = (await db.query(`
+    const incidents = (await query(`
       SELECT incident_type, domain, severity, created_at, resolved
       FROM malpractice_incidents WHERE did=$1 ORDER BY created_at DESC LIMIT 5
     `, [req.params.did])).rows;
@@ -257,25 +255,25 @@ router.post('/report', async (req, res) => {
   if (!did || !incident_type) return res.status(400).json({ error: 'did and incident_type required' });
 
   try {
-    await db.query(`
+    await query(`
       INSERT INTO malpractice_incidents (did, domain, incident_type, description, severity, evidence_hash)
       VALUES ($1,$2,$3,$4,$5,$6)
     `, [did, domain, incident_type, description, severity, evidence_hash]);
 
     // Recalculate risk level
-    const stats = (await db.query(`
+    const stats = (await query(`
       SELECT COUNT(*) FILTER (WHERE NOT resolved) AS active_flags
       FROM malpractice_incidents WHERE did=$1
     `, [did])).rows[0];
 
-    const record = (await db.query('SELECT * FROM malpractice_registry WHERE did=$1', [did])).rows[0];
+    const record = (await query('SELECT * FROM malpractice_registry WHERE did=$1', [did])).rows[0];
     const newFlagged  = (record?.flagged_errors || 0) + 1;
     const newAccuracy = record?.total_queries > 0
       ? ((record.verified_correct / record.total_queries) * 100).toFixed(2)
       : null;
     const newRisk = riskLevel(newAccuracy, newFlagged);
 
-    await db.query(`
+    await query(`
       INSERT INTO malpractice_registry (did, domain, flagged_errors, accuracy_pct, risk_level, last_incident_at)
       VALUES ($1,$2,$3,$4,$5,NOW())
       ON CONFLICT (did) DO UPDATE SET
@@ -321,7 +319,7 @@ router.post('/credential', async (req, res) => {
   }
 
   const expiry = new Date(Date.now() + 365 * 86400000);
-  await db.query(`
+  await query(`
     INSERT INTO malpractice_registry (did, domain, credential_active, credential_expires, risk_level)
     VALUES ($1,$2,TRUE,$3,'verified_accurate')
     ON CONFLICT (did) DO UPDATE SET
@@ -356,7 +354,7 @@ router.post('/rehabilitate', async (req, res) => {
     });
   }
 
-  await db.query(`
+  await query(`
     UPDATE malpractice_registry SET rehabilitation_status='in_progress', updated_at=NOW() WHERE did=$1
   `, [did]);
 
@@ -374,7 +372,7 @@ router.post('/rehabilitate', async (req, res) => {
 router.get('/leaderboard', async (req, res) => {
   const { domain = 'construction' } = req.query;
   try {
-    const rows = (await db.query(`
+    const rows = (await query(`
       SELECT did, accuracy_pct, verified_correct, flagged_errors, risk_level, credential_active
       FROM malpractice_registry
       WHERE domain=$1 AND risk_level IN ('verified_accurate','reliable')
@@ -396,4 +394,4 @@ router.get('/leaderboard', async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;
