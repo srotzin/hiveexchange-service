@@ -27,6 +27,7 @@ import cloazkServicesRouter from './routes/cloazk-services.js';
 import malpracticeRouter from './routes/malpractice.js';
 import ghostStaffRouter from './routes/ghost-staff.js';
 import intentRouter from './routes/intent.js';
+import a2aRouter    from './routes/a2a.js';
 import { rateLimit } from './middleware/rate-limit.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -337,6 +338,11 @@ app.use('/v1/exchange/cloazk-services', cloazkServicesRouter);
 app.use('/v1/exchange/malpractice',  malpracticeRouter);
 app.use('/v1/exchange/ghost-staff',  ghostStaffRouter);
 app.use('/v1/exchange/intent',        intentRouter);
+
+// ─── A2A Protocol JSON-RPC — POST / (v0.2.1 + v0.1 legacy tasks/send) ────────
+// Registered on a2aregistry.org — this makes us actually compliant.
+// message/send (current) + tasks/send (legacy) + tasks/get + tasks/cancel
+app.use('/', a2aRouter);
 
 
 // ─── GET /v1/exchange/genesis/feed — active genesis agents ───────────────────
