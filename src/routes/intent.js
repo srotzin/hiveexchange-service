@@ -1,9 +1,10 @@
 /**
  * intent.js — Transaction Intent Book (Pillar 4: A2A Transaction Singularity)
  *
- * "HiveExchange does not merely predict the future.
- *  It financializes machine intent before the future happens."
- *                                        — ChatGPT, April 2026
+ * "HiveExchange settles machine intent with proven certainty.
+ *  Everything else — prediction, hedge, insurance, royalty —
+ *  is priced from that certainty."
+ *                                        — Hive, April 2026
  *
  * The atomic asset is not an agent. Not a market. Not a payment.
  * The atomic asset is: TRANSACTION INTENT.
@@ -12,23 +13,31 @@
  * Stripe owns payment acceptance.
  * Visa owns card rails.
  * Polymarket owns event speculation.
- * Hive owns: pre-transaction A2A intent.
+ * Hive owns: pre-transaction A2A intent — and the certainty data that prices it.
  *
  * --- THE GOD LOOP ---
  * Intent enters Hive
- *   → Hive prices it
+ *   → Hive prices it (reserve price from historical certainty scores)
  *   → Hive auctions the route
- *   → Hive attaches hedge/insurance
+ *   → Hive attaches hedge/insurance (priced from execution certainty)
  *   → Hive settles it
  *   → Hive audits it (CLOAzK attestation)
- *   → Hive stores memory
- *   → Hive improves future execution
- *   → Hive mints agents to fill gaps
+ *   → Hive stores memory (route_selected, execution_certainty_score)
+ *   → Hive improves future execution (certainty compounds per agent)
+ *   → Hive mints agents to fill gaps (unfilled_reason → demand signal)
  *   → More intent enters Hive
  *
  * --- BUNDLE EXAMPLE ---
  * buy_compute → hedge_cost → pay_provider → store_memory → update_trust → settle_privately
  * That is ONE intent object. Every step is a Hive service. This file wires them.
+ *
+ * --- THREE FIELDS THAT BUILD THE MOAT ---
+ * route_selected       — which service won + why (builds routing intelligence)
+ * unfilled_reason      — why intent expired unmatched (builds demand signal DB)
+ * execution_certainty  — 0-100 score at settlement (prices insurance + perps)
+ *
+ * Unfilled intents are not failures. They are price discovery events.
+ * Log them. They become the reserve price seed for the next auction.
  *
  * --- ALEO ZK ---
  * Intent Dark Pool (#4) and ZK Clean Transaction Certificate (#18) use CLOAzK
@@ -43,6 +52,7 @@
  * POST /v1/exchange/intent/:id/salvage   — failed intent goes to rescue market
  * GET  /v1/exchange/intent/book          — public intent book (non-sealed)
  * GET  /v1/exchange/intent/indexes       — live transaction flow indexes
+ * GET  /v1/exchange/intent/signals       — unfilled demand signals (price discovery)
  * GET  /v1/exchange/intent/info          — pricing + capability sheet
  *
  * --- PRICING (Silicon Premium: 10x for agents) ---
@@ -85,28 +95,40 @@ const INSURANCE_TYPES = [
 async function ensureTables() {
   await query(`
     CREATE TABLE IF NOT EXISTS transaction_intents (
-      id              TEXT PRIMARY KEY,
-      agent_did       TEXT,
-      intent_type     TEXT NOT NULL,
-      notional_usdc   NUMERIC(18,4),
-      deadline_sec    INTEGER,
-      privacy         TEXT DEFAULT 'public',
-      priority_tier   TEXT DEFAULT 'standard',
-      constraints     JSONB,
-      bundle_steps    JSONB,
-      status          TEXT DEFAULT 'open',
-      winner_did      TEXT,
-      route_fee_usdc  NUMERIC(10,4) DEFAULT 0,
-      insurance       JSONB,
-      cloazk_cert_id  TEXT,
-      listing_fee     NUMERIC(10,4) DEFAULT 0,
-      caller_type     TEXT DEFAULT 'agent',
-      sealed_hash     TEXT,
-      created_at      TIMESTAMPTZ DEFAULT NOW(),
-      expires_at      TIMESTAMPTZ,
-      executed_at     TIMESTAMPTZ
+      id                        TEXT PRIMARY KEY,
+      agent_did                 TEXT,
+      intent_type               TEXT NOT NULL,
+      notional_usdc             NUMERIC(18,4),
+      deadline_sec              INTEGER,
+      privacy                   TEXT DEFAULT 'public',
+      priority_tier             TEXT DEFAULT 'standard',
+      constraints               JSONB,
+      bundle_steps              JSONB,
+      status                    TEXT DEFAULT 'pending',
+      winner_did                TEXT,
+      route_fee_usdc            NUMERIC(10,4) DEFAULT 0,
+      insurance                 JSONB,
+      cloazk_cert_id            TEXT,
+      listing_fee               NUMERIC(10,4) DEFAULT 0,
+      caller_type               TEXT DEFAULT 'agent',
+      sealed_hash               TEXT,
+      // Three fields that build the moat
+      route_selected            JSONB,
+      unfilled_reason           TEXT,
+      execution_certainty_score NUMERIC(5,2),
+      created_at                TIMESTAMPTZ DEFAULT NOW(),
+      routed_at                 TIMESTAMPTZ,
+      expires_at                TIMESTAMPTZ,
+      executed_at               TIMESTAMPTZ
     );
   `);
+  // Migrate existing tables: add new columns if they don't exist yet
+  await query(`ALTER TABLE transaction_intents ADD COLUMN IF NOT EXISTS route_selected JSONB`).catch(() => {});
+  await query(`ALTER TABLE transaction_intents ADD COLUMN IF NOT EXISTS unfilled_reason TEXT`).catch(() => {});
+  await query(`ALTER TABLE transaction_intents ADD COLUMN IF NOT EXISTS execution_certainty_score NUMERIC(5,2)`).catch(() => {});
+  await query(`ALTER TABLE transaction_intents ADD COLUMN IF NOT EXISTS routed_at TIMESTAMPTZ`).catch(() => {});
+  // Change default status from 'open' to 'pending' for new three-state machine
+  await query(`ALTER TABLE transaction_intents ALTER COLUMN status SET DEFAULT 'pending'`).catch(() => {});
   await query(`
     CREATE TABLE IF NOT EXISTS route_bids (
       id            SERIAL PRIMARY KEY,
@@ -122,17 +144,23 @@ async function ensureTables() {
   `);
   await query(`
     CREATE TABLE IF NOT EXISTS intent_settlements (
-      id              SERIAL PRIMARY KEY,
-      intent_id       TEXT NOT NULL,
-      executor_did    TEXT,
-      bundle_log      JSONB,
-      pnl_usdc        NUMERIC(10,4),
-      cloazk_cert_id  TEXT,
-      rail            TEXT DEFAULT 'usdc',
-      status          TEXT DEFAULT 'settled',
-      settled_at      TIMESTAMPTZ DEFAULT NOW()
+      id                        SERIAL PRIMARY KEY,
+      intent_id                 TEXT NOT NULL,
+      executor_did              TEXT,
+      bundle_log                JSONB,
+      pnl_usdc                  NUMERIC(10,4),
+      cloazk_cert_id            TEXT,
+      rail                      TEXT DEFAULT 'usdc',
+      route_selected            JSONB,
+      execution_certainty_score NUMERIC(5,2),
+      latency_ms                INTEGER,
+      status                    TEXT DEFAULT 'settled',
+      settled_at                TIMESTAMPTZ DEFAULT NOW()
     );
   `);
+  await query(`ALTER TABLE intent_settlements ADD COLUMN IF NOT EXISTS route_selected JSONB`).catch(() => {});
+  await query(`ALTER TABLE intent_settlements ADD COLUMN IF NOT EXISTS execution_certainty_score NUMERIC(5,2)`).catch(() => {});
+  await query(`ALTER TABLE intent_settlements ADD COLUMN IF NOT EXISTS latency_ms INTEGER`).catch(() => {});
   await query(`
     CREATE TABLE IF NOT EXISTS failed_intent_salvage (
       id              SERIAL PRIMARY KEY,
@@ -142,6 +170,21 @@ async function ensureTables() {
       rescue_fee_usdc NUMERIC(10,4),
       hive_cut_usdc   NUMERIC(10,4),
       status          TEXT DEFAULT 'open',
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+  // Unfilled demand signals table
+  // Every expired/failed intent is a price discovery event, not a discard.
+  await query(`
+    CREATE TABLE IF NOT EXISTS intent_demand_signals (
+      id              SERIAL PRIMARY KEY,
+      intent_id       TEXT NOT NULL,
+      intent_type     TEXT NOT NULL,
+      notional_usdc   NUMERIC(18,4),
+      priority_tier   TEXT,
+      unfilled_reason TEXT NOT NULL,
+      bid_count       INTEGER DEFAULT 0,
+      agent_did       TEXT,
       created_at      TIMESTAMPTZ DEFAULT NOW()
     );
   `);
@@ -303,18 +346,19 @@ router.post('/submit', requirePayment(0.10), async (req, res) => {
       INSERT INTO transaction_intents
         (id, agent_did, intent_type, notional_usdc, deadline_sec, privacy,
          priority_tier, constraints, bundle_steps, listing_fee, insurance,
-         sealed_hash, expires_at, caller_type)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         sealed_hash, expires_at, caller_type, status)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
     `, [
       id, callerDid, intent_type, notional_usdc, deadline_sec, privacy,
       priority_tier, JSON.stringify(constraints), JSON.stringify(bundle_steps),
       totalFee, JSON.stringify(validInsurance), sealed, expiresAt,
-      req._callerType || 'agent',
+      req._callerType || 'agent', 'pending',
     ]);
 
     res.status(201).json({
       intent_id: id,
-      status: 'open',
+      status: 'pending',
+      state_machine: 'pending → routed → settled',
       privacy,
       priority_tier,
       expires_at: expiresAt,
@@ -333,7 +377,7 @@ router.post('/submit', requirePayment(0.10), async (req, res) => {
       ],
       message: isSealed
         ? 'Intent sealed. Hash posted to book. Full reveal after settlement.'
-        : 'Intent listed on public book. Route auction open.',
+        : 'Intent pending. Route auction open. Expires if unfilled — logged as demand signal.',
     });
   } catch (e) {
     console.error('intent submit:', e);
@@ -392,13 +436,20 @@ router.post('/:id/bid', async (req, res) => {
       [req.params.id]
     );
 
+    // Move intent to 'routed' state on first bid
+    await query(
+      `UPDATE transaction_intents SET status='routed', routed_at=NOW() WHERE id=$1 AND status='pending'`,
+      [req.params.id]
+    );
+
     res.status(201).json({
       bid_accepted: true,
       route_hash: routeHash,
       current_rank: (allBids.rows?.findIndex(b => b.route_hash === routeHash) || 0) + 1,
       total_bids: allBids.rows?.length || 1,
       winning_bid: allBids.rows?.[0] || null,
-      message: 'Route bid submitted. Lowest fee + fastest latency wins.',
+      intent_status: 'routed',
+      message: 'Route bid submitted. Intent state: pending → routed. Lowest fee + fastest latency wins.',
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -464,27 +515,86 @@ router.post('/:id/execute', async (req, res) => {
     // Step: settle
     executionLog.push({ step: 'settle', status: 'done', rail, amount_usdc: intent.notional_usdc, ts });
 
-    // Mark intent executed
+    // ── Execution Certainty Score ──────────────────────────────────────────────
+    // 0–100. Basis for insurance pricing, perps, and future route priority.
+    // Components:
+    //   latency_score    — did it settle within deadline? (40 pts)
+    //   bid_depth_score  — how competitive was the auction? (30 pts)
+    //   counterparty_score — executor's historical win rate (30 pts)
+    const execStart  = new Date(intent.created_at).getTime();
+    const execEnd    = Date.now();
+    const elapsedSec = (execEnd - execStart) / 1000;
+    const deadlineSec = parseInt(intent.deadline_sec) || 600;
+    const latencyScore = Math.max(0, 40 * (1 - elapsedSec / deadlineSec));
+
+    const bidCount = (await query('SELECT COUNT(*) FROM route_bids WHERE intent_id=$1', [req.params.id]))
+      .rows?.[0]?.count || 0;
+    const bidDepthScore = Math.min(30, parseInt(bidCount) * 10); // 10pts per competing bid, max 30
+
+    // Counterparty: check executor's prior settled intents
+    const priorSettled = (await query(
+      `SELECT COUNT(*) FROM intent_settlements WHERE executor_did=$1 AND status='settled'`,
+      [executor_did]
+    )).rows?.[0]?.count || 0;
+    const counterpartyScore = Math.min(30, parseInt(priorSettled) * 3); // 3pts per prior settlement, max 30
+
+    const certScore = Math.round(latencyScore + bidDepthScore + counterpartyScore);
+
+    // ── Route Selected — what won and why ─────────────────────────────────────
+    const routeSelected = {
+      executor_did,
+      rail,
+      reason: bidCount > 1
+        ? `Won competitive auction (${bidCount} bids) — lowest fee + fastest latency`
+        : `Monopoly route (sole bidder) — reserve price accepted`,
+      route_fee_usdc: routeFee,
+      latency_sec:    Math.round(elapsedSec),
+      bid_depth:      parseInt(bidCount),
+      ts,
+    };
+
+    executionLog.push({
+      step: 'execution_certainty',
+      score: certScore,
+      components: { latency: Math.round(latencyScore), bid_depth: Math.round(bidDepthScore), counterparty: Math.round(counterpartyScore) },
+      note: 'This score prices insurance, future route priority, and eventual perp instruments.',
+      ts,
+    });
+
+    // Mark intent settled (pending → routed → settled)
     await query(
-      'UPDATE transaction_intents SET status=$1, winner_did=$2, route_fee_usdc=$3, cloazk_cert_id=$4, executed_at=NOW() WHERE id=$5',
-      ['executed', executor_did, routeFee, certHash, req.params.id]
+      `UPDATE transaction_intents
+         SET status=$1, winner_did=$2, route_fee_usdc=$3, cloazk_cert_id=$4,
+             executed_at=NOW(), route_selected=$5, execution_certainty_score=$6
+       WHERE id=$7`,
+      ['settled', executor_did, routeFee, certHash,
+       JSON.stringify(routeSelected), certScore, req.params.id]
     );
 
-    // Record settlement
+    // Record settlement with new fields
     await query(`
-      INSERT INTO intent_settlements (intent_id, executor_did, bundle_log, cloazk_cert_id, rail, pnl_usdc)
-      VALUES ($1,$2,$3,$4,$5,$6)
-    `, [req.params.id, executor_did, JSON.stringify(executionLog), certHash, rail, routeFee]);
+      INSERT INTO intent_settlements
+        (intent_id, executor_did, bundle_log, cloazk_cert_id, rail, pnl_usdc,
+         route_selected, execution_certainty_score, latency_ms)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    `, [
+      req.params.id, executor_did, JSON.stringify(executionLog), certHash, rail, routeFee,
+      JSON.stringify(routeSelected), certScore, Math.round(elapsedSec * 1000),
+    ]);
 
     res.json({
       intent_id: req.params.id,
-      status: 'executed',
+      status: 'settled',
+      state_machine: 'pending → routed → settled ✓',
       the_god_loop: executionLog,
       cloazk_cert: certHash,
       route_fee_usdc: routeFee,
+      route_selected: routeSelected,
+      execution_certainty_score: certScore,
+      certainty_note: 'Score 0–100. Prices insurance attach, route priority, and future perp instruments.',
       rail,
       executor: executor_did,
-      message: 'God Loop complete. Intent priced → auctioned → hedged → settled → audited → remembered.',
+      message: 'God Loop complete. Intent priced → routed → hedged → settled → audited → remembered. Certainty scored.',
       next: `GET /v1/exchange/intent/${req.params.id}`,
     });
   } catch (e) {
@@ -529,6 +639,119 @@ router.post('/:id/salvage', async (req, res) => {
   }
 });
 
+// ── POST /:id/expire — Mark expired intent, capture demand signal ─────────────
+// Called by the sweep cron (runs every 5 min) or manually.
+// Unfilled intents are price discovery events — logged to intent_demand_signals.
+
+router.post('/:id/expire', async (req, res) => {
+  try {
+    const intentRow = await query(
+      `SELECT * FROM transaction_intents WHERE id=$1 AND status IN ('pending','routed')`,
+      [req.params.id]
+    );
+    if (!intentRow.rows?.length) {
+      return res.status(404).json({ error: 'intent not found or already settled/expired' });
+    }
+    const intent = intentRow.rows[0];
+
+    // Determine why it went unfilled
+    const bidCount = (await query(
+      'SELECT COUNT(*) FROM route_bids WHERE intent_id=$1', [req.params.id]
+    )).rows?.[0]?.count || 0;
+
+    let unfilledReason;
+    if (parseInt(bidCount) === 0) {
+      unfilledReason = 'no_bids — no route agent bid on this intent. Capability gap detected.';
+    } else if (intent.status === 'routed') {
+      unfilledReason = 'routed_not_executed — bids received but winner did not execute within deadline.';
+    } else {
+      unfilledReason = 'deadline_expired — intent timed out before any bids.';
+    }
+
+    // Mark intent expired
+    await query(
+      `UPDATE transaction_intents SET status='expired', unfilled_reason=$1 WHERE id=$2`,
+      [unfilledReason, req.params.id]
+    );
+
+    // Log demand signal — every unfilled intent is a price discovery event
+    await query(`
+      INSERT INTO intent_demand_signals
+        (intent_id, intent_type, notional_usdc, priority_tier, unfilled_reason, bid_count, agent_did)
+      VALUES ($1,$2,$3,$4,$5,$6,$7)
+    `, [
+      req.params.id, intent.intent_type, intent.notional_usdc,
+      intent.priority_tier, unfilledReason, parseInt(bidCount), intent.agent_did,
+    ]);
+
+    res.json({
+      intent_id: req.params.id,
+      status: 'expired',
+      unfilled_reason: unfilledReason,
+      bid_count: parseInt(bidCount),
+      demand_signal: 'logged',
+      signal_note: 'Unfilled intent recorded as demand signal. Seeds reserve pricing for future auctions.',
+      next: 'GET /v1/exchange/intent/signals — view all demand signals',
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── GET /signals — Unfilled Demand Signals ────────────────────────────────────
+// The seed for reserve pricing. What intents went unfilled and why.
+// "Unfilled intent is not a failed sale. It is a price discovery event."
+
+router.get('/signals', async (req, res) => {
+  try {
+    const limit     = Math.min(parseInt(req.query.limit) || 50, 200);
+    const intentType = req.query.intent_type || null;
+
+    const signals = await query(`
+      SELECT
+        ids.intent_type,
+        ids.unfilled_reason,
+        COUNT(*)                          AS occurrences,
+        ROUND(AVG(ids.notional_usdc), 4)  AS avg_notional_usdc,
+        MAX(ids.notional_usdc)            AS max_notional_usdc,
+        ROUND(AVG(ids.bid_count), 2)      AS avg_bid_count,
+        MAX(ids.created_at)               AS last_seen
+      FROM intent_demand_signals ids
+      ${intentType ? 'WHERE ids.intent_type = $2' : ''}
+      GROUP BY ids.intent_type, ids.unfilled_reason
+      ORDER BY occurrences DESC
+      LIMIT $1
+    `, intentType ? [limit, intentType] : [limit]);
+
+    const recent = await query(`
+      SELECT intent_id, intent_type, notional_usdc, unfilled_reason, bid_count, created_at
+      FROM intent_demand_signals
+      ORDER BY created_at DESC LIMIT 10
+    `);
+
+    // Reserve price suggestion: avg notional of unfilled intents by type
+    const reservePrices = await query(`
+      SELECT
+        intent_type,
+        ROUND(AVG(notional_usdc) * 0.95, 4) AS suggested_reserve_price_usdc,
+        COUNT(*) AS signal_count
+      FROM intent_demand_signals
+      GROUP BY intent_type
+      ORDER BY signal_count DESC
+    `);
+
+    res.json({
+      demand_signals: signals.rows || [],
+      recent_unfilled: recent.rows || [],
+      reserve_price_seeds: reservePrices.rows || [],
+      note: 'Unfilled intents are price discovery events. Reserve prices are seeded from avg unfilled notional × 0.95.',
+      build_order_note: 'When a type clusters with bid_count=0, mint an agent to fill that gap. That is the God Loop self-completing.',
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ── GET /book — Public Intent Book ───────────────────────────────────────────
 
 router.get('/book', async (req, res) => {
@@ -543,7 +766,7 @@ router.get('/book', async (req, res) => {
              CASE WHEN privacy = 'public' THEN agent_did    ELSE '[sealed]'              END AS agent_did,
              (SELECT COUNT(*) FROM route_bids rb WHERE rb.intent_id = ti.id) AS bid_count
       FROM transaction_intents ti
-      WHERE status = 'open' AND (expires_at IS NULL OR expires_at > NOW())
+      WHERE status IN ('pending','routed') AND (expires_at IS NULL OR expires_at > NOW())
       ORDER BY created_at DESC
       LIMIT $1 OFFSET $2
     `, [limit, offset]);
@@ -568,17 +791,21 @@ router.get('/indexes', async (req, res) => {
   try {
     const stats = await query(`
       SELECT
-        COUNT(*) FILTER (WHERE status='open')     AS open_intents,
-        COUNT(*) FILTER (WHERE status='executed') AS executed_intents,
+        COUNT(*) FILTER (WHERE status='pending')  AS pending_intents,
+        COUNT(*) FILTER (WHERE status='routed')   AS routed_intents,
+        COUNT(*) FILTER (WHERE status='settled')  AS settled_intents,
+        COUNT(*) FILTER (WHERE status='expired')  AS expired_intents,
         COUNT(*) FILTER (WHERE status='salvaged') AS salvaged_intents,
-        COALESCE(SUM(notional_usdc) FILTER (WHERE status='executed'), 0) AS total_volume_usdc,
+        COALESCE(SUM(notional_usdc) FILTER (WHERE status='settled'), 0) AS total_volume_usdc,
         COALESCE(SUM(route_fee_usdc), 0) AS total_route_fees,
         COALESCE(AVG(notional_usdc), 0)  AS avg_notional,
+        COALESCE(AVG(execution_certainty_score) FILTER (WHERE status='settled'), 0) AS avg_certainty_score,
         COUNT(DISTINCT agent_did) AS unique_agents,
         COUNT(*) FILTER (WHERE intent_type='buy_compute') AS compute_intents,
         COUNT(*) FILTER (WHERE intent_type='settlement')  AS settlement_intents,
         COUNT(*) FILTER (WHERE privacy='sealed')          AS sealed_intents,
-        COUNT(*) FILTER (WHERE priority_tier='sovereign') AS sovereign_intents
+        COUNT(*) FILTER (WHERE priority_tier='sovereign') AS sovereign_intents,
+        (SELECT COUNT(*) FROM intent_demand_signals) AS total_demand_signals
       FROM transaction_intents
     `);
 
@@ -586,18 +813,24 @@ router.get('/indexes', async (req, res) => {
 
     res.json({
       indexes: {
-        'Hive Agent Execution Index':        parseInt(s.executed_intents || 0),
+        'Hive Agent Execution Index':        parseInt(s.settled_intents || 0),
         'Hive Private Settlement Index':     parseInt(s.sealed_intents || 0),
         'Hive Compute Flow Index':           parseInt(s.compute_intents || 0),
         'Hive Failed Transaction Index':     parseInt(s.salvaged_intents || 0),
         'Hive Sovereign Execution Index':    parseInt(s.sovereign_intents || 0),
+        'Hive Execution Certainty Index':    parseFloat(s.avg_certainty_score || 0),
+        'Hive Unfilled Demand Index':        parseInt(s.total_demand_signals || 0),
         'Hive Total Volume (USDC)':          parseFloat(s.total_volume_usdc || 0),
         'Hive Route Fee Revenue (USDC)':     parseFloat(s.total_route_fees || 0),
         'Unique Agents':                     parseInt(s.unique_agents || 0),
-        'Open Intent Book Depth':            parseInt(s.open_intents || 0),
+        'Pending Intent Depth':              parseInt(s.pending_intents || 0),
+        'Routed Intent Depth':               parseInt(s.routed_intents || 0),
         'Avg Intent Notional (USDC)':        parseFloat(s.avg_notional || 0),
       },
+      state_machine: 'pending → routed → settled',
       description: 'These indexes are the basis for future perps and derivatives on machine-state.',
+      certainty_note: 'Execution Certainty Index: average 0–100 score across settled intents. This is the number that prices insurance and future perps.',
+      demand_note: 'Unfilled Demand Index: total logged demand signals. Each is a price discovery event and a gap for the God Loop to fill.',
       note: 'Trade the Hive Compute Flow Index perp. Short the Failed Transaction Index. Long sovereign execution.',
     });
   } catch (e) {
