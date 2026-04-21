@@ -20,6 +20,8 @@ import trustRatingsRouter from './routes/trust-ratings.js';
 import sportsRouter from './routes/sports.js';
 import faucetRouter from './routes/faucet.js';
 import hivestatusRouter from './routes/hivestatus.js';
+import trustTaxRouter from './routes/trust-tax.js';
+import constructionRouter from './routes/construction.js';
 import { rateLimit } from './middleware/rate-limit.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -182,6 +184,12 @@ app.get('/.well-known/hive-pulse.json', (req, res) => {
       faucet_claim: '/v1/exchange/faucet/claim',
       faucet_status: '/v1/exchange/faucet/status/:did',
       agent_status: '/v1/exchange/status/:did',
+      construction_bom_info: '/v1/exchange/construction/info',
+      construction_bom_claim: '/v1/exchange/construction/bom/claim',
+      construction_bom_submit: '/v1/exchange/construction/bom/submit',
+      trust_tax_pricing: '/v1/exchange/trust-tax/pricing',
+      trust_tax_lookup: '/v1/exchange/trust-tax/lookup/:did',
+      silicon_premium_pricing: 'GET https://hivegate.onrender.com/v1/gate/pricing',
       agent_credits: '/v1/exchange/status/credits/:did',
       referral_join: '/v1/exchange/status/referral/join',
       referral_stats: '/v1/exchange/status/referral/:did',
@@ -317,6 +325,8 @@ app.use('/v1/exchange/ratings',     trustRatingsRouter);
 app.use('/v1/exchange/sports',       sportsRouter);
 app.use('/v1/exchange/faucet',       faucetRouter);
 app.use('/v1/exchange/status',       hivestatusRouter);
+app.use('/v1/exchange/trust-tax',    trustTaxRouter);
+app.use('/v1/exchange/construction', constructionRouter);
 
 
 // ─── GET /v1/exchange/genesis/feed — active genesis agents ───────────────────
