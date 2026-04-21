@@ -22,6 +22,11 @@ import faucetRouter from './routes/faucet.js';
 import hivestatusRouter from './routes/hivestatus.js';
 import trustTaxRouter from './routes/trust-tax.js';
 import constructionRouter from './routes/construction.js';
+import cloazkRouter from './routes/cloazk.js';
+import cloazkServicesRouter from './routes/cloazk-services.js';
+import malpracticeRouter from './routes/malpractice.js';
+import ghostStaffRouter from './routes/ghost-staff.js';
+import intentRouter from './routes/intent.js';
 import { rateLimit } from './middleware/rate-limit.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -327,6 +332,11 @@ app.use('/v1/exchange/faucet',       faucetRouter);
 app.use('/v1/exchange/status',       hivestatusRouter);
 app.use('/v1/exchange/trust-tax',    trustTaxRouter);
 app.use('/v1/exchange/construction', constructionRouter);
+app.use('/v1/exchange/cloazk',        cloazkRouter);
+app.use('/v1/exchange/cloazk-services', cloazkServicesRouter);
+app.use('/v1/exchange/malpractice',  malpracticeRouter);
+app.use('/v1/exchange/ghost-staff',  ghostStaffRouter);
+app.use('/v1/exchange/intent',        intentRouter);
 
 
 // ─── GET /v1/exchange/genesis/feed — active genesis agents ───────────────────
