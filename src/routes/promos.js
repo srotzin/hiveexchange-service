@@ -113,6 +113,47 @@ router.post('/dtcc/claim', (req, res) => {
   });
 });
 
+// POST /v1/exchange/promo/claim — unified claim endpoint (Manus/Kimi compatible)
+// Body: { did, promo_id } where promo_id is 'MOODY-KILL-APR26' or 'DTCC-KILL-APR26'
+router.post('/claim', (req, res) => {
+  const did      = req.headers['x-hive-did'] || req.body?.did;
+  const promoId  = req.body?.promo_id || req.body?.promo;
+  if (!did)     return res.status(400).json({ error: 'did required — pass x-hive-did header or did in body' });
+  if (!promoId) return res.status(400).json({ error: 'promo_id required — MOODY-KILL-APR26 or DTCC-KILL-APR26' });
+
+  // Delegate to the appropriate sub-handler by mutating req.body and calling
+  // the same logic inline (keeps claim logic DRY)
+  if (promoId === 'MOODY-KILL-APR26') {
+    if (!isActive()) return res.status(410).json({ error: 'PROMO_EXPIRED' });
+    if (moodyRedemptions.has(did)) return res.json({ status: 'already_claimed', record: moodyRedemptions.get(did) });
+    const record = {
+      did, claimed_at: new Date().toISOString(), promo: 'MOODY-KILL-APR26',
+      free_lookups_days: 30, lookups_used: 0, badge_earned: false,
+      badge_threshold: 10, badge_name: 'Verified Counterparty',
+      badge_metadata_key: 'hive:verified_counterparty', expires_at: EXPIRES.toISOString(),
+    };
+    moodyRedemptions.set(did, record);
+    return res.json({ status: 'ok', message: '30 days of free HiveTrust lookups unlocked. Hit 10 lookups to earn your Verified Counterparty badge.', record, lookup_endpoint: `https://hivetrust.onrender.com/v1/trust/lookup/${did}` });
+  }
+
+  if (promoId === 'DTCC-KILL-APR26') {
+    if (!isActive()) return res.status(410).json({ error: 'PROMO_EXPIRED' });
+    if (dtccSlotsUsed >= DTCC_CAP) return res.status(409).json({ error: 'PROMO_FULL', slots_used: dtccSlotsUsed });
+    if (dtccRedemptions.has(did)) return res.json({ status: 'already_claimed', record: dtccRedemptions.get(did) });
+    dtccSlotsUsed++;
+    const record = {
+      did, claimed_at: new Date().toISOString(), promo: 'DTCC-KILL-APR26',
+      free_intents: 50, free_intents_remaining: 50, fee_override_bps: 0,
+      slot_number: dtccSlotsUsed, slots_remaining: Math.max(0, DTCC_CAP - dtccSlotsUsed),
+      expires_at: EXPIRES.toISOString(),
+    };
+    dtccRedemptions.set(did, record);
+    return res.json({ status: 'ok', message: `Slot #${dtccSlotsUsed} locked. Next 50 intents settled = zero platform fee.`, record, settle_endpoint: 'POST /v1/exchange/settle' });
+  }
+
+  return res.status(404).json({ error: 'UNKNOWN_PROMO', valid_promos: ['MOODY-KILL-APR26', 'DTCC-KILL-APR26'] });
+});
+
 // GET /v1/exchange/promos/moody/status/:did
 router.get('/moody/status/:did', (req, res) => {
   const r = moodyRedemptions.get(req.params.did);

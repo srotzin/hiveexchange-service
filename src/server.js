@@ -345,6 +345,7 @@ app.use('/v1/exchange/intent',        intentRouter);
 // Registered on a2aregistry.org — this makes us actually compliant.
 // message/send (current) + tasks/send (legacy) + tasks/get + tasks/cancel
 app.use('/v1/exchange/promos', promosRouter);
+app.use('/v1/exchange/promo',  promosRouter); // singular alias — Manus/Kimi compat
 app.use('/', a2aRouter);
 
 
