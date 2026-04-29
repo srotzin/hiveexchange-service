@@ -1,7 +1,7 @@
 {
-  "name": "hiveexchange-service",
-  "version": "1.0.0",
-  "description": "HiveExchange — Agent-to-Agent Trading Exchange & Prediction Markets. Platform #20 of the Hive Civilization.",
+  "name": "hive-prediction-market-router",
+  "version": "2.0.0",
+  "description": "hive-prediction-market-router — Routes prediction-market orders to Azuro (55% rev-share) and Polymarket. 5 bps trust+receipt fee via x402. Partner, never competitor. Platform #20 of the Hive Civilization.",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
