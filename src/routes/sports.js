@@ -1,5 +1,5 @@
 // routes/sports.js — Azuro-powered sports prediction markets
-// Every bet earns 55% RevShare to affiliate wallet 0x78B3B3C356E89b5a69C488c6032509Ef4260B6bf
+// Every bet earns 55% RevShare to affiliate wallet 0x15184bf50b3d3f52b60434f8942b7d52f2eb436e
 // No capital required — Azuro LP provides liquidity, we earn on volume
 
 import { Router } from 'express';

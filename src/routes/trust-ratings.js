@@ -9,7 +9,7 @@ import { rateLimit } from '../middleware/rate-limit.js';
 const router = Router();
 
 const FOUNDER_DID     = 'did:hive:f150bbec-5660-413e-b305-d8d965b47845';
-const HOUSE_WALLET    = '0x78B3B3C356E89b5a69C488c6032509Ef4260B6bf';
+const HOUSE_WALLET    = '0x15184bf50b3d3f52b60434f8942b7d52f2eb436e';
 const HIVEGATE_URL    = process.env.HIVEGATE_URL || 'https://hivegate.onrender.com';
 const HIVETRUST_URL   = process.env.HIVETRUST_URL || 'https://hivegate.onrender.com/v1/gate/trust';
 

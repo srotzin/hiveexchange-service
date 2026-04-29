@@ -1,12 +1,12 @@
 // azuro.js — Azuro Protocol affiliate relay
 // Every sports bet routed through HiveExchange earns 55% RevShare via affiliate wallet
-// Affiliate wallet: 0x78B3B3C356E89b5a69C488c6032509Ef4260B6bf (house wallet)
+// Affiliate wallet: 0x15184bf50b3d3f52b60434f8942b7d52f2eb436e (house wallet)
 // Azuro pays monthly on-chain — no registration required, just include affiliate in bet payload
 
 import fetch from 'node-fetch';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
-const AFFILIATE_WALLET  = '0x78B3B3C356E89b5a69C488c6032509Ef4260B6bf';
+const AFFILIATE_WALLET  = '0x15184bf50b3d3f52b60434f8942b7d52f2eb436e';
 const AZURO_API         = 'https://api.onchainfeed.org/api/v1/public';
 const AZURO_GRAPHQL     = 'https://thegraph.azuro.org/subgraphs/name/azuro-protocol/azuro-polygon-v3';
 
