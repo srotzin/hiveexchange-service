@@ -43,7 +43,7 @@ const TIERS = {
     name:        'Crew',
     price_human: 499,
     staff:       ['estimator','procurement'],
-    services:    ['BOM takeoffs (unlimited)','Simpson SKU matching','Jurisdiction code flags','Supplier procurement routing','HiveTrust vendor verification'],
+    services:    ['BOM takeoffs (unlimited)','Structural SKU matching','Jurisdiction code flags','Supplier procurement routing','HiveTrust vendor verification'],
     limits:      { bom_per_month: 999, projects: 5 },
   },
   foreman: {
@@ -158,7 +158,7 @@ router.post('/subscribe', async (req, res) => {
     status:           'active',
     your_agents: {
       estimator:     'POST /v1/exchange/construction/bom/claim — unlimited BOM takeoffs',
-      procurement:   'POST /v1/exchange/construction/bom/submit — Simpson SKUs + jurisdiction flags',
+      procurement:   'POST /v1/exchange/construction/bom/submit — structural SKUs + jurisdiction flags',
       compliance:    'GET  /v1/exchange/ratings/methodology — ICC-ES + code verification',
       legal:         tier === 'principal' ? 'POST https://hivegate.onrender.com/v1/gate/execute — HiveLaw contracts' : 'Upgrade to Principal',
       finance:       tier === 'principal' ? 'POST https://hivebank.onrender.com/v1/bank/settle — escrow + settlement' : 'Upgrade to Principal',
